@@ -1,6 +1,20 @@
 import fs from 'fs';
 import path from 'path';
 
+export interface RequestHistoryEntry {
+  id: string;
+  userId: number;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  timestamp: number;
+  action: string;
+  details: string;
+  camera?: string;
+  success: boolean;
+  errorMessage?: string;
+}
+
 export interface AppConfig {
   ringRefreshToken?: string;
   openaiApiKey?: string;
@@ -21,6 +35,7 @@ export interface AppConfig {
     lastName?: string;
     requestTime: number;
   }>;
+  requestHistory?: RequestHistoryEntry[];
 }
 
 const CONFIG_FILE = path.resolve(process.cwd(), 'config.json');
@@ -147,6 +162,39 @@ export function getPendingUsers(): Array<{
 export function getAuthorizedUsers(): number[] {
   const config = getConfig();
   return config.telegramAuthorizedUsers || [];
+}
+
+// Request History Management
+export function addRequestHistory(entry: Omit<RequestHistoryEntry, 'id' | 'timestamp'>): void {
+  const config = getConfig();
+  const historyEntry: RequestHistoryEntry = {
+    ...entry,
+    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+    timestamp: Date.now()
+  };
+  
+  const currentHistory = config.requestHistory || [];
+  // Keep only last 1000 entries to prevent file from growing too large
+  const updatedHistory = [historyEntry, ...currentHistory].slice(0, 1000);
+  
+  updateConfig({ requestHistory: updatedHistory });
+}
+
+export function getRequestHistory(limit?: number): RequestHistoryEntry[] {
+  const config = getConfig();
+  const history = config.requestHistory || [];
+  return limit ? history.slice(0, limit) : history;
+}
+
+export function getRequestHistoryByUser(userId: number, limit?: number): RequestHistoryEntry[] {
+  const config = getConfig();
+  const history = config.requestHistory || [];
+  const userHistory = history.filter(entry => entry.userId === userId);
+  return limit ? userHistory.slice(0, limit) : userHistory;
+}
+
+export function clearRequestHistory(): void {
+  updateConfig({ requestHistory: [] });
 }
 
 

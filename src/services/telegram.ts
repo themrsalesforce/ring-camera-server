@@ -1,5 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { getSnapshotBase64, getCameraNames } from './ring.js';
+import { getSnapshotBase64, getCameraNames, getStoredImages } from './ring.js';
 import { 
   getConfig, 
   updateConfig, 
@@ -9,7 +9,11 @@ import {
   addPendingUser, 
   removePendingUser, 
   getPendingUsers, 
-  getAuthorizedUsers 
+  getAuthorizedUsers,
+  addRequestHistory,
+  getRequestHistory,
+  getRequestHistoryByUser,
+  clearRequestHistory
 } from './config.js';
 import { analyzeImage, analyzeImageWithThinking } from './vision.js';
 
@@ -18,6 +22,7 @@ interface MenuState {
   currentMenu: string;
   selectedCamera?: string;
   lastMessageId?: number;
+  user?: TelegramBot.User;
 }
 
 const ADMIN_USER_ID = 426747873; // @shmuelchaikin's user ID
@@ -42,6 +47,24 @@ class TelegramService {
     this.bot = new TelegramBot(token, { polling: true });
     this.setupBot();
     this.loadReminders();
+  }
+
+  private trackRequest(userId: number, user: TelegramBot.User, action: string, details: string, camera?: string, success: boolean = true, errorMessage?: string) {
+    try {
+      addRequestHistory({
+        userId,
+        username: user.username,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        action,
+        details,
+        camera,
+        success,
+        errorMessage
+      });
+    } catch (error) {
+      console.error('Failed to track request:', error);
+    }
   }
 
   private setupBot() {
@@ -349,61 +372,43 @@ class TelegramService {
   private async handleAdminCommand(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
-    const text = msg.text || '';
 
     if (userId !== ADMIN_USER_ID) {
-      await this.bot.sendMessage(chatId, '❌ You do not have permission to use admin commands.');
+      await this.bot.sendMessage(chatId, '❌ Access denied. Admin only.');
       return;
     }
 
-    const parts = text.split(' ');
-    const command = parts[1];
-    const targetUserId = parseInt(parts[2]);
+    await this.showAdminMenu(chatId);
+  }
 
-    switch (command) {
-      case 'approve':
-        if (isNaN(targetUserId)) {
-          await this.bot.sendMessage(chatId, '❌ Please provide a valid user ID: `/admin approve [user_id]`');
-          return;
+  private async showAdminMenu(chatId: number) {
+    const pendingCount = getPendingUsers().length;
+    const authorizedCount = getAuthorizedUsers().length;
+    
+    await this.bot.sendMessage(chatId, 
+      '🔧 **Admin Panel**\n\n' +
+      `📋 Pending Requests: ${pendingCount}\n` +
+      `👥 Authorized Users: ${authorizedCount}`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: `📋 Pending (${pendingCount})`, callback_data: 'admin_pending' },
+              { text: `👥 Users (${authorizedCount})`, callback_data: 'admin_users' }
+            ],
+            [
+              { text: '📊 Request History', callback_data: 'admin_history' },
+              { text: '🗑️ Clear History', callback_data: 'admin_clear_history' }
+            ],
+            [
+              { text: '📸 View Images', callback_data: 'admin_images' },
+              { text: '🏠 Main Menu', callback_data: 'menu_main' }
+            ]
+          ]
         }
-        await this.approveUser(chatId, targetUserId);
-        break;
-
-      case 'deny':
-        if (isNaN(targetUserId)) {
-          await this.bot.sendMessage(chatId, '❌ Please provide a valid user ID: `/admin deny [user_id]`');
-          return;
-        }
-        await this.denyUser(chatId, targetUserId);
-        break;
-
-      case 'list':
-        await this.listPendingUsers(chatId);
-        break;
-
-      case 'users':
-        await this.listAuthorizedUsers(chatId);
-        break;
-
-      case 'remove':
-        if (isNaN(targetUserId)) {
-          await this.bot.sendMessage(chatId, '❌ Please provide a valid user ID: `/admin remove [user_id]`');
-          return;
-        }
-        await this.removeUser(chatId, targetUserId);
-        break;
-
-      default:
-        await this.bot.sendMessage(chatId, 
-          '🔧 **Admin Commands**\n\n' +
-          '`/admin approve [user_id]` - Approve a user\n' +
-          '`/admin deny [user_id]` - Deny a user\n' +
-          '`/admin remove [user_id]` - Remove authorized user\n' +
-          '`/admin list` - View pending requests\n' +
-          '`/admin users` - View authorized users',
-          { parse_mode: 'Markdown' }
-        );
-    }
+      }
+    );
   }
 
   private async approveUser(adminChatId: number, targetUserId: number) {
@@ -534,6 +539,274 @@ class TelegramService {
       `👥 **Authorized Users (${authorizedUsers.length})**\n\n${userList}`,
       { parse_mode: 'Markdown' }
     );
+  }
+
+  private async listPendingUsersWithButtons(chatId: number) {
+    const pendingUsers = getPendingUsers();
+    
+    if (pendingUsers.length === 0) {
+      await this.bot.sendMessage(chatId, 
+        '📋 **No Pending Requests**\n\nThere are no users waiting for approval.',
+        {
+          reply_markup: {
+            inline_keyboard: [[{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]]
+          }
+        }
+      );
+      return;
+    }
+
+    for (const user of pendingUsers) {
+      const userName = user.username ? `@${user.username}` : `${user.firstName || ''} ${user.lastName || ''}`.trim();
+      const userInfo = 
+        `👤 **User Request**\n\n` +
+        `**ID:** \`${user.userId}\`\n` +
+        `**Name:** ${userName}\n` +
+        `**Requested:** ${new Date(user.requestTime).toLocaleString()}`;
+
+      await this.bot.sendMessage(chatId, userInfo, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✅ Approve', callback_data: `admin_approve_${user.userId}` },
+              { text: '❌ Deny', callback_data: `admin_deny_${user.userId}` }
+            ]
+          ]
+        }
+      });
+    }
+
+    await this.bot.sendMessage(chatId, 
+      `📋 **Total Pending: ${pendingUsers.length}**`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]]
+        }
+      }
+    );
+  }
+
+  private async listAuthorizedUsersWithButtons(chatId: number) {
+    const authorizedUsers = getAuthorizedUsers();
+    
+    if (authorizedUsers.length === 0) {
+      await this.bot.sendMessage(chatId, 
+        '👥 **No Authorized Users**\n\nThere are no authorized users.',
+        {
+          reply_markup: {
+            inline_keyboard: [[{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]]
+          }
+        }
+      );
+      return;
+    }
+
+    const userButtons = authorizedUsers.map(userId => [
+      { text: `👤 User ${userId}`, callback_data: `admin_user_info_${userId}` },
+      { text: '🗑️ Remove', callback_data: `admin_remove_${userId}` }
+    ]);
+
+    userButtons.push([{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]);
+
+    await this.bot.sendMessage(chatId, 
+      `👥 **Authorized Users (${authorizedUsers.length})**\n\nSelect a user to remove:`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: userButtons }
+      }
+    );
+  }
+
+  private async showRequestHistory(chatId: number, userId?: number) {
+    try {
+      const history = userId ? getRequestHistoryByUser(userId, 50) : getRequestHistory(50);
+      
+      if (history.length === 0) {
+        const message = userId ? 
+          `📊 **No request history found for user ${userId}**` : 
+          '📊 **No request history found**';
+        await this.bot.sendMessage(chatId, message);
+        return;
+      }
+
+      const historyText = history.map(entry => {
+        const date = new Date(entry.timestamp).toLocaleString();
+        const user = entry.username ? `@${entry.username}` : `${entry.firstName || ''} ${entry.lastName || ''}`.trim();
+        const status = entry.success ? '✅' : '❌';
+        const camera = entry.camera ? ` (${entry.camera})` : '';
+        const error = entry.errorMessage ? `\n   Error: ${entry.errorMessage}` : '';
+        
+        return `${status} **${entry.action}**${camera}\n` +
+               `   User: ${user} (${entry.userId})\n` +
+               `   Time: ${date}\n` +
+               `   Details: ${entry.details}${error}`;
+      }).join('\n\n');
+
+      const title = userId ? 
+        `📊 **Request History for User ${userId}** (Last 50)` : 
+        '📊 **Request History** (Last 50)';
+
+      // Split message if too long
+      const maxLength = 4000;
+      if (historyText.length > maxLength) {
+        const chunks = [];
+        let currentChunk = '';
+        const entries = historyText.split('\n\n');
+        
+        for (const entry of entries) {
+          if (currentChunk.length + entry.length + 2 > maxLength) {
+            chunks.push(currentChunk);
+            currentChunk = entry;
+          } else {
+            currentChunk += (currentChunk ? '\n\n' : '') + entry;
+          }
+        }
+        if (currentChunk) chunks.push(currentChunk);
+
+        await this.bot.sendMessage(chatId, title, { parse_mode: 'Markdown' });
+        for (const chunk of chunks) {
+          await this.bot.sendMessage(chatId, chunk, { parse_mode: 'Markdown' });
+        }
+      } else {
+        await this.bot.sendMessage(chatId, `${title}\n\n${historyText}`, { parse_mode: 'Markdown' });
+      }
+
+    } catch (error) {
+      console.error('Error showing request history:', error);
+      await this.bot.sendMessage(chatId, '❌ Error retrieving request history');
+    }
+  }
+
+  private async clearHistory(chatId: number) {
+    try {
+      clearRequestHistory();
+      await this.bot.sendMessage(chatId, '✅ **Request history cleared successfully**', { 
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]]
+        }
+      });
+    } catch (error) {
+      console.error('Error clearing request history:', error);
+      await this.bot.sendMessage(chatId, '❌ Error clearing request history');
+    }
+  }
+
+  private async handleAdminCallback(chatId: number, data: string, userId?: number) {
+    if (userId !== ADMIN_USER_ID) {
+      await this.bot.sendMessage(chatId, '❌ Access denied. Admin only.');
+      return;
+    }
+
+    switch (data) {
+      case 'admin_menu':
+        await this.showAdminMenu(chatId);
+        break;
+      case 'admin_pending':
+        await this.listPendingUsersWithButtons(chatId);
+        break;
+      case 'admin_users':
+        await this.listAuthorizedUsersWithButtons(chatId);
+        break;
+      case 'admin_history':
+        await this.showRequestHistory(chatId);
+        break;
+      case 'admin_clear_history':
+        await this.confirmClearHistory(chatId);
+        break;
+      case 'admin_clear_history_confirm':
+        await this.clearHistory(chatId);
+        break;
+      case 'admin_images':
+        await this.showStoredImages(chatId);
+        break;
+      default:
+        if (data.startsWith('admin_approve_')) {
+          const targetUserId = parseInt(data.replace('admin_approve_', ''));
+          await this.approveUser(chatId, targetUserId);
+        } else if (data.startsWith('admin_deny_')) {
+          const targetUserId = parseInt(data.replace('admin_deny_', ''));
+          await this.denyUser(chatId, targetUserId);
+        } else if (data.startsWith('admin_remove_')) {
+          const targetUserId = parseInt(data.replace('admin_remove_', ''));
+          await this.removeUser(chatId, targetUserId);
+        }
+        break;
+    }
+  }
+
+  private async confirmClearHistory(chatId: number) {
+    await this.bot.sendMessage(chatId, 
+      '⚠️ **Confirm Action**\n\nAre you sure you want to clear all request history? This action cannot be undone.',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✅ Yes, Clear All', callback_data: 'admin_clear_history_confirm' },
+              { text: '❌ Cancel', callback_data: 'admin_menu' }
+            ]
+          ]
+        }
+      }
+    );
+  }
+
+  private async showStoredImages(chatId: number) {
+    try {
+      const imageData = await getStoredImages();
+      
+      if (imageData.length === 0) {
+        await this.bot.sendMessage(chatId, 
+          '📸 **No Stored Images**\n\nNo images have been captured yet.',
+          {
+            reply_markup: {
+              inline_keyboard: [[{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]]
+            }
+          }
+        );
+        return;
+      }
+
+      let totalImages = 0;
+      const summary = imageData.map(camera => {
+        totalImages += camera.images.length;
+        return `📹 **${camera.camera}**: ${camera.images.length} images`;
+      }).join('\n');
+
+      await this.bot.sendMessage(chatId, 
+        `📸 **Stored Images Summary**\n\n${summary}\n\n**Total**: ${totalImages} images\n\n` +
+        `Visit the admin dashboard at http://localhost:3000/images.html to view all images.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🌐 Open Web Gallery', url: 'http://localhost:3000/images.html' }],
+              [{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]
+            ]
+          }
+        }
+      );
+
+      // Send latest image from each camera
+      for (const camera of imageData.slice(0, 3)) { // Limit to 3 cameras to avoid spam
+        if (camera.images.length > 0) {
+          const latestImage = camera.images[0];
+          try {
+            await this.bot.sendPhoto(chatId, `http://localhost:3000${latestImage.path}`, {
+              caption: `📸 **${camera.camera}** (Latest)\n📅 ${latestImage.timestamp.toLocaleString()}`,
+              parse_mode: 'Markdown'
+            });
+          } catch (error) {
+            console.error(`Error sending image for ${camera.camera}:`, error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error showing stored images:', error);
+      await this.bot.sendMessage(chatId, '❌ Error retrieving stored images');
+    }
   }
 
   private startReminder(reminder: Reminder) {
@@ -734,17 +1007,28 @@ class TelegramService {
     });
   }
 
-  private async handleCallbackQuery(query: TelegramBot.CallbackQuery) {
+    private async handleCallbackQuery(query: TelegramBot.CallbackQuery) {
     const chatId = query.message?.chat.id;
     const data = query.data;
     const userId = query.from?.id;
-    
+
     if (!chatId || !data) {
       console.log('No chatId or data in callback query');
       return;
     }
 
     console.log(`Callback query received: ${data} from chat ${chatId} by user ${userId}`);
+
+    // Store user info in menu state for tracking
+    if (query.from) {
+      const currentState = this.menuStates.get(chatId);
+      this.menuStates.set(chatId, {
+        ...currentState,
+        chatId,
+        currentMenu: currentState?.currentMenu || 'main',
+        user: query.from
+      });
+    }
 
     // Check authorization for all callback queries except admin commands
     if (!userId || (!isUserAuthorized(userId) && !data.startsWith('admin_'))) {
@@ -826,6 +1110,8 @@ class TelegramService {
       } else if (data === 'reminder_list') {
         console.log('Listing reminders');
         await this.handleListReminders(chatId);
+      } else if (data.startsWith('admin_')) {
+        await this.handleAdminCallback(chatId, data, userId);
       } else {
         console.log(`Unknown callback data: ${data}`);
         await this.bot.sendMessage(chatId, `Unknown action: ${data}`);
@@ -837,6 +1123,7 @@ class TelegramService {
   }
 
   private async handleSnapshot(chatId: number, cameraName: string) {
+    const menuState = this.menuStates.get(chatId);
     try {
       await this.bot.sendMessage(chatId, `📸 Taking snapshot from ${cameraName}...`);
       const imageBase64 = await getSnapshotBase64(cameraName);
@@ -851,12 +1138,23 @@ class TelegramService {
           ]
         }
       });
+
+      // Track successful snapshot request
+      if (menuState?.user) {
+        this.trackRequest(menuState.user.id, menuState.user, 'Snapshot', 'Successfully took snapshot', cameraName, true);
+      }
     } catch (error) {
       await this.bot.sendMessage(chatId, `Error taking snapshot: ${(error as Error).message}`);
+      
+      // Track failed snapshot request
+      if (menuState?.user) {
+        this.trackRequest(menuState.user.id, menuState.user, 'Snapshot', 'Failed to take snapshot', cameraName, false, (error as Error).message);
+      }
     }
   }
 
   private async handleAIQuestion(chatId: number, cameraName: string, question: string) {
+    const menuState = this.menuStates.get(chatId);
     try {
       await this.bot.sendMessage(chatId, `🤖 Analyzing ${cameraName} image...`);
       
@@ -876,8 +1174,18 @@ class TelegramService {
           ]
         }
       });
+
+      // Track successful AI question
+      if (menuState?.user) {
+        this.trackRequest(menuState.user.id, menuState.user, 'AI Question', `Asked: "${question}"`, cameraName, true);
+      }
     } catch (error) {
       await this.bot.sendMessage(chatId, `Error analyzing image: ${(error as Error).message}`);
+      
+      // Track failed AI question
+      if (menuState?.user) {
+        this.trackRequest(menuState.user.id, menuState.user, 'AI Question', `Failed to ask: "${question}"`, cameraName, false, (error as Error).message);
+      }
     }
   }
 

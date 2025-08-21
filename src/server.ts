@@ -237,6 +237,52 @@ app.post('/api/setup/complete', async (req, res) => {
   }
 });
 
+// Request history endpoints
+app.get('/api/history', (_req, res) => {
+  try {
+    const { getRequestHistory } = require('./services/config.js');
+    const history = getRequestHistory(100); // Get last 100 requests
+    res.json({ history });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/history/:userId', (req, res) => {
+  try {
+    const { getRequestHistoryByUser } = require('./services/config.js');
+    const userId = parseInt(req.params.userId);
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+    const history = getRequestHistoryByUser(userId, 100);
+    res.json({ history, userId });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.delete('/api/history', (_req, res) => {
+  try {
+    const { clearRequestHistory } = require('./services/config.js');
+    clearRequestHistory();
+    res.json({ success: true, message: 'Request history cleared' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Images endpoints
+app.get('/api/images', async (_req, res) => {
+  try {
+    const { getStoredImages } = await import('./services/ring.js');
+    const images = await getStoredImages();
+    res.json({ images });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 // Static frontend
 app.use(express.static(path.resolve(process.cwd(), 'public')));
 

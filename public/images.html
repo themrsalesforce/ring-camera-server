@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Gallery - Ring Camera Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn.secondary {
+            background: #6c757d;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border: 2px solid #e9ecef;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .camera-section {
+            margin-bottom: 40px;
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+
+        .camera-header {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .camera-title {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 5px;
+        }
+
+        .camera-count {
+            color: #6c757d;
+        }
+
+        .images-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .image-card {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .image-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .image-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            cursor: pointer;
+        }
+
+        .image-info {
+            padding: 15px;
+        }
+
+        .image-timestamp {
+            font-size: 0.9em;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+
+        .image-size {
+            font-size: 0.8em;
+            color: #adb5bd;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .no-images {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.9);
+        }
+
+        .modal-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 20px;
+        }
+
+        .modal img {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            border-radius: 10px;
+        }
+
+        .close {
+            position: absolute;
+            top: 20px;
+            right: 35px;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            opacity: 0.7;
+        }
+
+        .modal-info {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            text-align: center;
+            background: rgba(0,0,0,0.7);
+            padding: 10px 20px;
+            border-radius: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .images-grid {
+                grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                gap: 15px;
+                padding: 15px;
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📸 Image Gallery</h1>
+            <p>View all captured camera images</p>
+        </div>
+
+        <div class="content">
+            <div class="controls">
+                <button class="btn" onclick="loadImages()">🔄 Refresh</button>
+                <a href="/history.html" class="btn">📊 Request History</a>
+                <a href="/" class="btn secondary">🏠 Dashboard</a>
+            </div>
+
+            <div class="stats" id="stats">
+                <!-- Stats will be populated by JavaScript -->
+            </div>
+
+            <div id="loading" class="loading">
+                Loading images...
+            </div>
+
+            <div id="imagesContainer">
+                <!-- Images will be populated by JavaScript -->
+            </div>
+
+            <div id="noImages" class="no-images" style="display: none;">
+                📸 No images found. Take some snapshots with your Telegram bot!
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Modal -->
+    <div id="imageModal" class="modal">
+        <span class="close">&times;</span>
+        <div class="modal-content">
+            <img id="modalImage" src="" alt="">
+        </div>
+        <div class="modal-info" id="modalInfo">
+            <!-- Image info will be populated -->
+        </div>
+    </div>
+
+    <script>
+        let allImages = [];
+
+        async function loadImages() {
+            const loading = document.getElementById('loading');
+            const imagesContainer = document.getElementById('imagesContainer');
+            const noImages = document.getElementById('noImages');
+
+            loading.style.display = 'block';
+            imagesContainer.innerHTML = '';
+            noImages.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/images');
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to load images');
+                }
+
+                allImages = data.images || [];
+                updateStats();
+                renderImages(allImages);
+
+                if (allImages.length === 0 || allImages.every(camera => camera.images.length === 0)) {
+                    noImages.style.display = 'block';
+                }
+
+            } catch (error) {
+                console.error('Error loading images:', error);
+                imagesContainer.innerHTML = `<div style="text-align: center; color: #dc3545; padding: 40px;">Error loading images: ${error.message}</div>`;
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        function updateStats() {
+            const stats = document.getElementById('stats');
+            
+            let totalImages = 0;
+            let totalSize = 0;
+            const cameras = allImages.length;
+
+            allImages.forEach(camera => {
+                totalImages += camera.images.length;
+                camera.images.forEach(image => {
+                    totalSize += image.size;
+                });
+            });
+
+            const totalSizeMB = (totalSize / (1024 * 1024)).toFixed(1);
+
+            stats.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-number">${cameras}</div>
+                    <div class="stat-label">Cameras</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${totalImages}</div>
+                    <div class="stat-label">Total Images</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${totalSizeMB}MB</div>
+                    <div class="stat-label">Storage Used</div>
+                </div>
+            `;
+        }
+
+        function renderImages(imageData) {
+            const imagesContainer = document.getElementById('imagesContainer');
+            
+            if (imageData.length === 0) {
+                return;
+            }
+
+            const cameraSections = imageData.map(camera => {
+                if (camera.images.length === 0) return '';
+
+                const imagesGrid = camera.images.map(image => {
+                    const timestamp = new Date(image.timestamp).toLocaleString();
+                    const sizeMB = (image.size / (1024 * 1024)).toFixed(2);
+
+                    return `
+                        <div class="image-card">
+                            <img src="${image.path}" alt="Camera snapshot" 
+                                 onclick="openModal('${image.path}', '${camera.camera}', '${timestamp}', '${sizeMB}MB')">
+                            <div class="image-info">
+                                <div class="image-timestamp">📅 ${timestamp}</div>
+                                <div class="image-size">💾 ${sizeMB}MB</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="camera-section">
+                        <div class="camera-header">
+                            <div class="camera-title">📹 ${camera.camera}</div>
+                            <div class="camera-count">${camera.images.length} images</div>
+                        </div>
+                        <div class="images-grid">
+                            ${imagesGrid}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            imagesContainer.innerHTML = cameraSections;
+        }
+
+        function openModal(imagePath, cameraName, timestamp, size) {
+            const modal = document.getElementById('imageModal');
+            const modalImage = document.getElementById('modalImage');
+            const modalInfo = document.getElementById('modalInfo');
+
+            modalImage.src = imagePath;
+            modalInfo.innerHTML = `
+                <strong>📹 ${cameraName}</strong><br>
+                📅 ${timestamp}<br>
+                💾 ${size}
+            `;
+
+            modal.style.display = 'block';
+        }
+
+        // Modal controls
+        document.getElementById('imageModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                this.style.display = 'none';
+            }
+        });
+
+        document.querySelector('.close').addEventListener('click', function() {
+            document.getElementById('imageModal').style.display = 'none';
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                document.getElementById('imageModal').style.display = 'none';
+            }
+        });
+
+        // Load images on page load
+        loadImages();
+    </script>
+</body>
+</html>
