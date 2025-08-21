@@ -86,6 +86,9 @@ export function updateConfig(partial: AppConfig): AppConfig {
   if (partial.telegramPendingUsers !== undefined) {
     next.telegramPendingUsers = partial.telegramPendingUsers;
   }
+  if (partial.requestHistory !== undefined) {
+    next.requestHistory = partial.requestHistory;
+  }
   currentConfig = next;
   saveConfigToDisk(currentConfig);
   return currentConfig;

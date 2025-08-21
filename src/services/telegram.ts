@@ -814,10 +814,21 @@ class TelegramService {
         if (camera.images.length > 0) {
           const latestImage = camera.images[0];
           try {
-            await this.bot.sendPhoto(chatId, `http://localhost:3000${latestImage.path}`, {
-              caption: `📸 **${camera.camera}** (Latest)\n📅 ${latestImage.timestamp.toLocaleString()}`,
-              parse_mode: 'Markdown'
-            });
+            // Prefer streaming local file to avoid relying on localhost URLs
+            const fs = await import('fs');
+            const path = await import('path');
+            const absolutePath = path.resolve(process.cwd(), 'public', latestImage.path.replace(/^\//, ''));
+            if (fs.existsSync(absolutePath)) {
+              await this.bot.sendPhoto(chatId, fs.createReadStream(absolutePath) as any, {
+                caption: `📸 **${camera.camera}** (Latest)\n📅 ${latestImage.timestamp.toLocaleString()}`,
+                parse_mode: 'Markdown'
+              });
+            } else {
+              await this.bot.sendPhoto(chatId, `http://localhost:3000${latestImage.path}`, {
+                caption: `📸 **${camera.camera}** (Latest)\n📅 ${latestImage.timestamp.toLocaleString()}`,
+                parse_mode: 'Markdown'
+              });
+            }
           } catch (error) {
             console.error(`Error sending image for ${camera.camera}:`, error);
           }
@@ -1389,9 +1400,18 @@ class TelegramService {
         const parts = data.split('_');
         const interval = parseInt(parts[2]);
         const cameraNameBase64 = parts[3];
-        const promptBase64 = parts[4];
+        const promptId = parts[4];
         const cameraName = Buffer.from(cameraNameBase64, 'base64').toString();
-        const prompt = Buffer.from(promptBase64, 'base64').toString();
+
+        const promptMap: Record<string, string> = {
+          p1: 'Are the garbage bins on the street or driveway?',
+          p2: 'Is anyone at the door or in the area?',
+          p3: 'Are there any vehicles in the driveway?',
+          p4: 'Is the area secure with no suspicious activity?',
+          p5: "What's the current weather conditions?",
+          p6: 'Are there any packages delivered?'
+        };
+        const prompt = promptMap[promptId] || 'What do you see in this image?';
         await this.createReminder(chatId, interval, cameraName, true, prompt);
       } else if (data.startsWith('reminder_custom_prompt_')) {
         const parts = data.split('_');
@@ -1465,19 +1485,19 @@ class TelegramService {
       `${Math.floor(interval / 60)} hour${Math.floor(interval / 60) > 1 ? 's' : ''}` :
       `${interval} minute${interval > 1 ? 's' : ''}`;
 
-    const commonPrompts = [
-      "Are the garbage bins on the street or driveway?",
-      "Is anyone at the door or in the area?",
-      "Are there any vehicles in the driveway?",
-      "Is the area secure with no suspicious activity?",
-      "What's the current weather conditions?",
-      "Are there any packages delivered?"
-    ];
+    const promptMap: Record<string, string> = {
+      p1: 'Are the garbage bins on the street or driveway?',
+      p2: 'Is anyone at the door or in the area?',
+      p3: 'Are there any vehicles in the driveway?',
+      p4: 'Is the area secure with no suspicious activity?',
+      p5: "What's the current weather conditions?",
+      p6: 'Are there any packages delivered?'
+    };
 
-    const promptButtons = commonPrompts.map(prompt => [
-      { 
-        text: `💭 ${prompt.length > 35 ? prompt.substring(0, 32) + '...' : prompt}`, 
-        callback_data: `reminder_prompt_${interval}_${Buffer.from(cameraName).toString('base64')}_${Buffer.from(prompt).toString('base64')}` 
+    const promptButtons = Object.entries(promptMap).map(([id, prompt]) => [
+      {
+        text: `💭 ${prompt.length > 35 ? prompt.substring(0, 32) + '...' : prompt}`,
+        callback_data: `reminder_prompt_${interval}_${Buffer.from(cameraName).toString('base64')}_${id}`
       }
     ]);
 
@@ -1693,6 +1713,11 @@ class TelegramService {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
+            [
+              { text: '⏱️ 1 min', callback_data: `reminder_interval_${reminderType}_1` },
+              { text: '⏱️ 2 min', callback_data: `reminder_interval_${reminderType}_2` },
+              { text: '⏱️ 5 min', callback_data: `reminder_interval_${reminderType}_5` }
+            ],
             [
               { text: '⏱️ 15 min', callback_data: `reminder_interval_${reminderType}_15` },
               { text: '⏱️ 30 min', callback_data: `reminder_interval_${reminderType}_30` }
