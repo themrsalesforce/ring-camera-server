@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ring Camera Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+      body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .status {
+            text-align: center;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+
+        .status.loading {
+            color: #6c757d;
+        }
+
+        .status.setup-needed {
+            color: #dc3545;
+        }
+
+        .status.ready {
+            color: #28a745;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn.secondary {
+            background: #6c757d;
+        }
+
+        .endpoints {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .endpoint {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+        }
+
+        .endpoint:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.1);
+        }
+
+        .endpoint h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .endpoint p {
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+
+        .endpoint a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .endpoint a:hover {
+            text-decoration: underline;
+        }
+
+        .telegram-info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .telegram-info h3 {
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+
+        .code {
+            background: #f8f9fa;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+        <div class="header">
+            <h1>🏠 Ring Camera Server</h1>
+            <p>Your intelligent home monitoring system</p>
+        </div>
+
+        <div class="content">
+            <div id="status" class="status loading">
+                Checking system status...
+            </div>
+
+            <div id="setupSection" style="display: none; text-align: center;">
+                <h2>Welcome to Ring Camera Server!</h2>
+                <p>Let's get your system configured in just a few minutes.</p>
+                <br>
+                <a href="/setup.html" class="btn">🚀 Start Setup</a>
+          </div>
+
+            <div id="dashboardSection" style="display: none;">
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <h2>✅ System Ready!</h2>
+                    <p>Your Ring Camera Server is running and configured.</p>
+        </div>
+
+                <div class="telegram-info">
+                    <h3>📱 Your Telegram Bot is Active!</h3>
+                    <p>Message your bot and send <span class="code">/start</span> to begin using it.</p>
+                    <p>Use the interactive menu to take snapshots, ask AI questions, and manage reminders.</p>
+        </div>
+
+                <div class="endpoints">
+                    <div class="endpoint">
+                        <h3>📸 Camera Controls</h3>
+                        <p>View cameras and take snapshots</p>
+                        <a href="/api/cameras">List Cameras</a> |
+                        <a href="/api/snapshot">Take Snapshot</a>
+      </div>
+
+                    <div class="endpoint">
+                        <h3>🤖 AI Analysis</h3>
+                        <p>Analyze images with AI</p>
+                        <a href="/bins/status">Check Bin Status</a>
+    </div>
+
+                    <div class="endpoint">
+                        <h3>📱 Telegram Bot</h3>
+                        <p>Manage your bot and reminders</p>
+                        <a href="/api/telegram/status">Bot Status</a> |
+                        <a href="/api/telegram/reminders">Reminders</a>
+        </div>
+
+                    <div class="endpoint">
+                        <h3>⚙️ Configuration</h3>
+                        <p>Update settings and preferences</p>
+                        <a href="/api/config">View Config</a> |
+                        <a href="/setup.html">Reconfigure</a>
+      </div>
+    </div>
+
+                <div style="text-align: center; margin-top: 30px;">
+                    <a href="/old-dashboard.html" class="btn secondary">📊 Advanced Dashboard</a>
+      </div>
+    </div>
+        </div>
+    </div>
+
+    <script>
+        async function checkSystemStatus() {
+            try {
+                const response = await fetch('/api/setup/status');
+                const status = await response.json();
+                
+                const statusDiv = document.getElementById('status');
+                const setupSection = document.getElementById('setupSection');
+                const dashboardSection = document.getElementById('dashboardSection');
+
+                if (status.isSetup) {
+                    statusDiv.style.display = 'none';
+                    dashboardSection.style.display = 'block';
+        } else {
+                    statusDiv.innerHTML = '<span class="setup-needed">⚠️ Setup Required</span>';
+                    statusDiv.className = 'status setup-needed';
+                    setupSection.style.display = 'block';
+                }
+
+            } catch (error) {
+                const statusDiv = document.getElementById('status');
+                statusDiv.innerHTML = '<span class="setup-needed">❌ Unable to connect to server</span>';
+                statusDiv.className = 'status setup-needed';
+                
+                // Show setup section as fallback
+                document.getElementById('setupSection').style.display = 'block';
+            }
+        }
+
+        // Check status on page load
+        checkSystemStatus();
+    </script>
+  </body>
+  </html>

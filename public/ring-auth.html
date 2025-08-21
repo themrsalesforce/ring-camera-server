@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ring Authentication</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            margin-bottom: 10px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .token-display {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 12px;
+            display: none;
+        }
+
+        .step {
+            margin-bottom: 20px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+            border-color: #667eea;
+        }
+
+        .step h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Ring Authentication</h1>
+            <p>Get your Ring refresh token</p>
+        </div>
+
+        <div class="content">
+            <!-- Step 1: Enter credentials -->
+            <div class="step active" id="step1">
+                <h3>Step 1: Enter Ring Credentials</h3>
+                
+                <div class="info">
+                    <strong>Note:</strong> Your credentials are only used to get the refresh token and are not stored anywhere.
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Ring Account Email:</label>
+                    <input type="email" id="email" placeholder="your@email.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Ring Account Password:</label>
+                    <input type="password" id="password" placeholder="Your password">
+                </div>
+
+                <button class="btn" onclick="startAuth()" id="authBtn">
+                    🔑 Get Ring Token
+                </button>
+            </div>
+
+            <!-- Step 2: 2FA if needed -->
+            <div class="step" id="step2">
+                <h3>Step 2: Two-Factor Authentication</h3>
+                
+                <div class="info">
+                    Please enter the verification code sent to your device.
+                </div>
+
+                <div class="form-group">
+                    <label for="twoFactorCode">Verification Code:</label>
+                    <input type="text" id="twoFactorCode" placeholder="123456">
+                </div>
+
+                <button class="btn" onclick="verify2FA()" id="verifyBtn">
+                    ✅ Verify Code
+                </button>
+            </div>
+
+            <!-- Step 3: Success -->
+            <div class="step" id="step3">
+                <h3>✅ Success!</h3>
+                
+                <div class="success" style="display: block;">
+                    Your Ring refresh token has been generated successfully!
+                </div>
+
+                <div class="token-display" id="tokenDisplay" style="display: block;">
+                    <!-- Token will be displayed here -->
+                </div>
+
+                <button class="btn" onclick="useToken()">
+                    📋 Use This Token
+                </button>
+            </div>
+
+            <div id="errorMessage" class="error"></div>
+        </div>
+    </div>
+
+    <script>
+        let authSession = null;
+
+        async function startAuth() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const authBtn = document.getElementById('authBtn');
+
+            if (!email || !password) {
+                showError('Please enter both email and password');
+                return;
+            }
+
+            authBtn.disabled = true;
+            authBtn.textContent = 'Authenticating...';
+
+            try {
+                const response = await fetch('/api/ring/auth/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Authentication failed');
+                }
+
+                if (result.requiresTwoFactor) {
+                    // Show 2FA step
+                    document.getElementById('step1').classList.remove('active');
+                    document.getElementById('step2').classList.add('active');
+                    authSession = result.session;
+                } else if (result.refreshToken) {
+                    // Direct success
+                    showSuccess(result.refreshToken);
+                }
+
+            } catch (error) {
+                showError(error.message);
+                authBtn.disabled = false;
+                authBtn.textContent = '🔑 Get Ring Token';
+            }
+        }
+
+        async function verify2FA() {
+            const code = document.getElementById('twoFactorCode').value;
+            const verifyBtn = document.getElementById('verifyBtn');
+
+            if (!code) {
+                showError('Please enter the verification code');
+                return;
+            }
+
+            verifyBtn.disabled = true;
+            verifyBtn.textContent = 'Verifying...';
+
+            try {
+                const response = await fetch('/api/ring/auth/verify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ code })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Verification failed');
+                }
+
+                if (result.refreshToken) {
+                    showSuccess(result.refreshToken);
+                }
+
+            } catch (error) {
+                showError(error.message);
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = '✅ Verify Code';
+            }
+        }
+
+        function showSuccess(token) {
+            document.getElementById('step1').classList.remove('active');
+            document.getElementById('step2').classList.remove('active');
+            document.getElementById('step3').classList.add('active');
+            
+            document.getElementById('tokenDisplay').textContent = token;
+            
+            // Store token for use
+            window.refreshToken = token;
+        }
+
+        function useToken() {
+            if (window.refreshToken && window.opener) {
+                // Send token back to parent window
+                window.opener.postMessage({
+                    type: 'RING_TOKEN',
+                    token: window.refreshToken
+                }, '*');
+                
+                // Close popup
+                window.close();
+            }
+        }
+
+        function showError(message) {
+            const errorMessage = document.getElementById('errorMessage');
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            
+            setTimeout(() => {
+                errorMessage.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
