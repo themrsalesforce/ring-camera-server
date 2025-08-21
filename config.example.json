@@ -1,0 +1,8 @@
+{
+  "ringRefreshToken": "your_ring_refresh_token_here",
+  "openaiApiKey": "your_openai_api_key_here",
+  "cameraName": "Front Door",
+  "telegramAuthorizedUsers": [426747873],
+  "telegramPendingUsers": [],
+  "telegramReminders": []
+}
