@@ -11,56 +11,71 @@ A Node.js server that integrates Ring cameras with a Telegram bot for remote mon
 - **Bin Classification**: AI-powered bin status detection (requires OpenAI API)
 - **AI Image Analysis**: Ask questions about camera images and get AI-powered answers
 
-## Setup
+## 🚀 Quick Setup
 
 ### Prerequisites
 
 1. Node.js (v20 or higher)
 2. Ring account with cameras
-3. Telegram bot token (create your own at @BotFather)
-4. OpenAI API key (for AI analysis features)
+3. OpenAI API key (for AI analysis features)
 
 ### Installation
 
-1. **Clone the repository:**
+1. **Clone and install:**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/themrsalesforce/ring-camera-server.git
    cd ring-camera-server
-   ```
-
-2. **Install dependencies:**
-   ```bash
    npm install
    ```
 
-3. **Set up configuration:**
+2. **Start the server:**
    ```bash
-   cp config.example.json config.json
+   npm run dev
    ```
-   Then edit `config.json` with your credentials.
 
-4. **Configure your Ring account:**
-   - Start the server: `npm run dev`
-   - Visit `http://localhost:3000`
-   - Use the Ring authentication interface to get your refresh token
-   - Add the refresh token to your `config.json`
+3. **Complete setup via web interface:**
+   - Open http://localhost:3000
+   - Click "🚀 Start Setup"
+   - Follow the 4-step setup wizard:
+     - **Step 1**: Create Telegram bot and get your User ID
+     - **Step 2**: Authenticate with Ring account
+     - **Step 3**: Add OpenAI API key
+     - **Step 4**: Complete setup
 
-5. **Set up Telegram bot:**
-   - Create a bot with @BotFather on Telegram
-   - Get your bot token
-   - Update the token in `src/services/telegram.ts` (line with `ADMIN_USER_ID`)
+4. **Start using your bot:**
+   - Message your bot on Telegram
+   - Send `/start` to see the interactive menu
 
-6. **Configure OpenAI API:**
-   - Get an API key from [OpenAI](https://platform.openai.com/api-keys)
-   - Add it to your `config.json`
+**That's it!** No code editing required - everything is configured through the web interface.
 
-7. **Set up admin access:**
-   - Update the `ADMIN_USER_ID` in `src/services/telegram.ts` with your Telegram user ID
-   - Add your user ID to `telegramAuthorizedUsers` in `config.json`
+## 🌐 Web Setup Interface
 
-### Configuration
+The setup wizard provides a user-friendly interface for configuring your Ring Camera Server:
 
-The bot uses a `config.json` file for all configuration. Copy `config.example.json` to `config.json` and fill in your values:
+### Setup Steps
+
+1. **Telegram Bot Setup**
+   - Instructions for creating a bot with @BotFather
+   - Get your bot token and Telegram User ID
+   - Automatic configuration of admin permissions
+
+2. **Ring Authentication**
+   - Secure popup window for Ring login
+   - Automatic 2FA handling
+   - Generates and stores refresh token
+
+3. **OpenAI Integration**
+   - Simple API key configuration
+   - Direct link to OpenAI API keys page
+
+4. **Auto-Configuration**
+   - Automatically updates all configuration files
+   - Sets up admin permissions
+   - Initializes user whitelist
+
+### Manual Configuration (Advanced)
+
+If you prefer manual configuration, the bot uses a `config.json` file. Copy `config.example.json` to `config.json` and fill in your values:
 
 ```json
 {
