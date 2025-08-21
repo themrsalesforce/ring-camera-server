@@ -23,6 +23,7 @@ interface MenuState {
   selectedCamera?: string;
   lastMessageId?: number;
   user?: TelegramBot.User;
+  reminderInterval?: number;
 }
 
 const ADMIN_USER_ID = 426747873; // @shmuelchaikin's user ID
@@ -34,6 +35,8 @@ interface Reminder {
   cameraName?: string;
   lastRun: number;
   isActive: boolean;
+  aiPrompt?: string; // For smart reminders with AI analysis
+  isSmartReminder?: boolean; // Flag to distinguish smart reminders
 }
 
 class TelegramService {
@@ -84,7 +87,7 @@ class TelegramService {
         return;
       }
 
-      await this.showMainMenu(chatId);
+      await this.showMainMenu(chatId, userId);
     });
 
     // Handle /admin command
@@ -290,6 +293,15 @@ class TelegramService {
             await this.handleDetailedAnalysis(chatId, menuState.selectedCamera);
           } else {
             await this.handleAIQuestion(chatId, menuState.selectedCamera, msg.text);
+          }
+          this.menuStates.delete(chatId); // Clear the waiting state
+        } else if (menuState && menuState.currentMenu === 'reminder_custom_prompt' && menuState.selectedCamera && menuState.reminderInterval) {
+          console.log('Processing custom reminder prompt');
+          const customPrompt = msg.text?.trim();
+          if (customPrompt && customPrompt.length > 0) {
+            await this.createReminder(chatId, menuState.reminderInterval, menuState.selectedCamera, true, customPrompt);
+          } else {
+            await this.bot.sendMessage(chatId, '❌ Please provide a valid AI prompt.');
           }
           this.menuStates.delete(chatId); // Clear the waiting state
         }
@@ -620,13 +632,19 @@ class TelegramService {
 
   private async showRequestHistory(chatId: number, userId?: number) {
     try {
+      console.log(`Showing request history for chat ${chatId}, user ${userId}`);
       const history = userId ? getRequestHistoryByUser(userId, 50) : getRequestHistory(50);
+      console.log(`Found ${history.length} history entries`);
       
       if (history.length === 0) {
         const message = userId ? 
           `📊 **No request history found for user ${userId}**` : 
-          '📊 **No request history found**';
-        await this.bot.sendMessage(chatId, message);
+          '📊 **No request history found**\n\nRequest history will appear here after you use the bot features (snapshots, AI questions, etc.).';
+        await this.bot.sendMessage(chatId, message, {
+          reply_markup: {
+            inline_keyboard: [[{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]]
+          }
+        });
         return;
       }
 
@@ -755,11 +773,13 @@ class TelegramService {
 
   private async showStoredImages(chatId: number) {
     try {
+      console.log(`Showing stored images for chat ${chatId}`);
       const imageData = await getStoredImages();
+      console.log(`Found ${imageData.length} camera folders with images`);
       
       if (imageData.length === 0) {
         await this.bot.sendMessage(chatId, 
-          '📸 **No Stored Images**\n\nNo images have been captured yet.',
+          '📸 **No Stored Images**\n\nNo images have been captured yet. Take some snapshots to see them here!',
           {
             reply_markup: {
               inline_keyboard: [[{ text: '🔙 Back to Admin', callback_data: 'admin_menu' }]]
@@ -831,20 +851,40 @@ class TelegramService {
           `${Math.floor(reminder.interval / 60)} hour${Math.floor(reminder.interval / 60) > 1 ? 's' : ''}` :
           `${reminder.interval} minute${reminder.interval > 1 ? 's' : ''}`;
         
-        const caption = `⏰ **Automated Reminder**\n📹 Camera: ${reminder.cameraName}\n⏱️ Every ${intervalText}\n📅 ${new Date().toLocaleString()}`;
-        
-        await this.bot.sendPhoto(reminder.chatId, imageBuffer, { 
-          caption,
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🗑️ Stop Reminder', callback_data: `reminder_stop_${reminder.id}` },
-                { text: '📋 View All', callback_data: 'reminder_list' }
+        if (reminder.isSmartReminder && reminder.aiPrompt) {
+          // Smart reminder with AI analysis
+          const analysis = await analyzeImage(imageBase64, reminder.aiPrompt);
+          const caption = `🤖 **Smart AI Reminder**\n📹 Camera: ${reminder.cameraName}\n⏱️ Every ${intervalText}\n💭 Question: ${reminder.aiPrompt}\n\n**AI Analysis:** ${analysis}\n\n📅 ${new Date().toLocaleString()}`;
+          
+          await this.bot.sendPhoto(reminder.chatId, imageBuffer, { 
+            caption,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '🗑️ Stop Reminder', callback_data: `reminder_stop_${reminder.id}` },
+                  { text: '📋 View All', callback_data: 'reminder_list' }
+                ]
               ]
-            ]
-          }
-        });
+            }
+          });
+        } else {
+          // Simple reminder with just snapshot
+          const caption = `⏰ **Automated Reminder**\n📹 Camera: ${reminder.cameraName}\n⏱️ Every ${intervalText}\n📅 ${new Date().toLocaleString()}`;
+          
+          await this.bot.sendPhoto(reminder.chatId, imageBuffer, { 
+            caption,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '🗑️ Stop Reminder', callback_data: `reminder_stop_${reminder.id}` },
+                  { text: '📋 View All', callback_data: 'reminder_list' }
+                ]
+              ]
+            }
+          });
+        }
         
         reminder.lastRun = Date.now();
         this.saveReminders();
@@ -912,16 +952,23 @@ class TelegramService {
   }
 
   // Menu Methods
-  private async showMainMenu(chatId: number) {
+  private async showMainMenu(chatId: number, userId?: number) {
     try {
+      const baseButtons = [
+        [{ text: '📸 Take Snapshot', callback_data: 'menu_snapshot' }],
+        [{ text: '🤖 Ask AI Question', callback_data: 'menu_ask' }],
+        [{ text: '⏰ Manage Reminders', callback_data: 'menu_reminders' }],
+        [{ text: '📋 List Cameras', callback_data: 'menu_cameras' }],
+        [{ text: '❓ Help', callback_data: 'menu_help' }]
+      ];
+
+      // Add admin button only for the admin user
+      if (userId === ADMIN_USER_ID) {
+        baseButtons.push([{ text: '🔧 Admin Panel', callback_data: 'admin_menu' }]);
+      }
+
       const keyboard = {
-        inline_keyboard: [
-          [{ text: '📸 Take Snapshot', callback_data: 'menu_snapshot' }],
-          [{ text: '🤖 Ask AI Question', callback_data: 'menu_ask' }],
-          [{ text: '⏰ Manage Reminders', callback_data: 'menu_reminders' }],
-          [{ text: '📋 List Cameras', callback_data: 'menu_cameras' }],
-          [{ text: '❓ Help', callback_data: 'menu_help' }]
-        ]
+        inline_keyboard: baseButtons
       };
 
       const message = await this.bot.sendMessage(chatId, 
@@ -1077,7 +1124,7 @@ class TelegramService {
 
       if (data === 'menu_main') {
         console.log('Showing main menu');
-        await this.showMainMenu(chatId);
+        await this.showMainMenu(chatId, userId);
       } else if (data === 'menu_snapshot') {
         console.log('Showing snapshot menu');
         await this.showCameraMenu(chatId, 'snapshot');
@@ -1318,15 +1365,40 @@ class TelegramService {
 
   private async handleReminderCallback(chatId: number, data: string, userId?: number) {
     try {
-      if (data.startsWith('reminder_interval_')) {
-        const interval = parseInt(data.replace('reminder_interval_', ''));
-        await this.showCameraSelectionForReminder(chatId, interval);
+      if (data.startsWith('reminder_type_')) {
+        const reminderType = data.replace('reminder_type_', '') as 'simple' | 'smart';
+        await this.showReminderIntervals(chatId, reminderType);
+      } else if (data.startsWith('reminder_interval_')) {
+        const parts = data.replace('reminder_interval_', '').split('_');
+        const reminderType = parts[0] as 'simple' | 'smart';
+        const interval = parseInt(parts[1]);
+        await this.showCameraSelectionForReminder(chatId, interval, reminderType);
       } else if (data.startsWith('reminder_camera_')) {
+        const parts = data.split('_');
+        const reminderType = parts[2] as 'simple' | 'smart';
+        const interval = parseInt(parts[3]);
+        const cameraNameBase64 = parts[4];
+        const cameraName = Buffer.from(cameraNameBase64, 'base64').toString();
+        
+        if (reminderType === 'smart') {
+          await this.showAIPromptSelection(chatId, interval, cameraName);
+        } else {
+          await this.createReminder(chatId, interval, cameraName, false);
+        }
+      } else if (data.startsWith('reminder_prompt_')) {
         const parts = data.split('_');
         const interval = parseInt(parts[2]);
         const cameraNameBase64 = parts[3];
+        const promptBase64 = parts[4];
         const cameraName = Buffer.from(cameraNameBase64, 'base64').toString();
-        await this.createReminder(chatId, interval, cameraName);
+        const prompt = Buffer.from(promptBase64, 'base64').toString();
+        await this.createReminder(chatId, interval, cameraName, true, prompt);
+      } else if (data.startsWith('reminder_custom_prompt_')) {
+        const parts = data.split('_');
+        const interval = parseInt(parts[3]);
+        const cameraNameBase64 = parts[4];
+        const cameraName = Buffer.from(cameraNameBase64, 'base64').toString();
+        await this.handleCustomPromptInput(chatId, interval, cameraName);
       } else if (data.startsWith('reminder_stop_')) {
         const reminderId = data.replace('reminder_stop_', '');
         await this.stopReminder(chatId, reminderId);
@@ -1340,7 +1412,7 @@ class TelegramService {
     }
   }
 
-  private async showCameraSelectionForReminder(chatId: number, interval: number) {
+  private async showCameraSelectionForReminder(chatId: number, interval: number, reminderType: 'simple' | 'smart') {
     try {
       const cameras = await getCameraNames();
       
@@ -1362,17 +1434,19 @@ class TelegramService {
         `${Math.floor(interval / 60)} hour${Math.floor(interval / 60) > 1 ? 's' : ''}` :
         `${interval} minute${interval > 1 ? 's' : ''}`;
 
+      const typeText = reminderType === 'smart' ? '🤖 Smart AI Reminder' : '📸 Simple Reminder';
+
       const cameraButtons = cameras.map(camera => [
         { 
           text: `📹 ${camera}`, 
-          callback_data: `reminder_camera_${interval}_${Buffer.from(camera).toString('base64')}` 
+          callback_data: `reminder_camera_${reminderType}_${interval}_${Buffer.from(camera).toString('base64')}` 
         }
       ]);
 
-      cameraButtons.push([{ text: '🔙 Back to Intervals', callback_data: 'reminder_add' }]);
+      cameraButtons.push([{ text: '🔙 Back to Intervals', callback_data: `reminder_type_${reminderType}` }]);
 
       await this.bot.sendMessage(chatId,
-        `⏰ **New Reminder Setup**\n\n` +
+        `⏰ **${typeText} Setup**\n\n` +
         `⏱️ **Interval:** Every ${intervalText}\n\n` +
         `📹 **Select Camera:**`,
         {
@@ -1386,7 +1460,77 @@ class TelegramService {
     }
   }
 
-  private async createReminder(chatId: number, interval: number, cameraName: string) {
+  private async showAIPromptSelection(chatId: number, interval: number, cameraName: string) {
+    const intervalText = interval >= 60 ? 
+      `${Math.floor(interval / 60)} hour${Math.floor(interval / 60) > 1 ? 's' : ''}` :
+      `${interval} minute${interval > 1 ? 's' : ''}`;
+
+    const commonPrompts = [
+      "Are the garbage bins on the street or driveway?",
+      "Is anyone at the door or in the area?",
+      "Are there any vehicles in the driveway?",
+      "Is the area secure with no suspicious activity?",
+      "What's the current weather conditions?",
+      "Are there any packages delivered?"
+    ];
+
+    const promptButtons = commonPrompts.map(prompt => [
+      { 
+        text: `💭 ${prompt.length > 35 ? prompt.substring(0, 32) + '...' : prompt}`, 
+        callback_data: `reminder_prompt_${interval}_${Buffer.from(cameraName).toString('base64')}_${Buffer.from(prompt).toString('base64')}` 
+      }
+    ]);
+
+    promptButtons.push([
+      { text: '✏️ Custom Prompt', callback_data: `reminder_custom_prompt_${interval}_${Buffer.from(cameraName).toString('base64')}` }
+    ]);
+    promptButtons.push([
+      { text: '🔙 Back to Camera Selection', callback_data: `reminder_interval_smart_${interval}` }
+    ]);
+
+    await this.bot.sendMessage(chatId,
+      `🤖 **Smart AI Reminder Setup**\n\n` +
+      `📹 **Camera:** ${cameraName}\n` +
+      `⏱️ **Interval:** Every ${intervalText}\n\n` +
+      `💭 **Choose AI Prompt:**`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: promptButtons }
+      }
+    );
+  }
+
+  private async handleCustomPromptInput(chatId: number, interval: number, cameraName: string) {
+    // Store the reminder setup state for custom prompt input
+    this.menuStates.set(chatId, {
+      chatId,
+      currentMenu: 'reminder_custom_prompt',
+      selectedCamera: cameraName,
+      user: this.menuStates.get(chatId)?.user,
+      reminderInterval: interval
+    });
+
+    await this.bot.sendMessage(chatId,
+      `✏️ **Custom AI Prompt**\n\n` +
+      `📹 **Camera:** ${cameraName}\n` +
+      `⏱️ **Interval:** Every ${interval >= 60 ? `${Math.floor(interval / 60)} hour${Math.floor(interval / 60) > 1 ? 's' : ''}` : `${interval} minute${interval > 1 ? 's' : ''}`}\n\n` +
+      `Please type your custom AI prompt for this smart reminder.\n\n` +
+      `**Examples:**\n` +
+      `• "Is my car parked in the driveway?"\n` +
+      `• "Are there any people or animals in the yard?"\n` +
+      `• "What's happening at the front entrance?"`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '❌ Cancel', callback_data: `reminder_interval_smart_${interval}` }]
+          ]
+        }
+      }
+    );
+  }
+
+  private async createReminder(chatId: number, interval: number, cameraName: string, isSmartReminder: boolean = false, aiPrompt?: string) {
     try {
       const id = `${chatId}_${Date.now()}`;
       const reminder: Reminder = {
@@ -1395,7 +1539,9 @@ class TelegramService {
         interval,
         cameraName,
         lastRun: Date.now(),
-        isActive: true
+        isActive: true,
+        isSmartReminder,
+        aiPrompt
       };
 
       this.reminders.set(id, reminder);
@@ -1412,12 +1558,15 @@ class TelegramService {
         this.trackRequest(menuState.user.id, menuState.user, 'Reminder Created', `Set ${intervalText} reminder for ${cameraName}`, cameraName, true);
       }
 
+      const reminderTypeText = isSmartReminder ? '🤖 Smart AI Reminder' : '📸 Simple Reminder';
+      const promptText = aiPrompt ? `\n💭 **AI Prompt:** ${aiPrompt}` : '';
+      
       await this.bot.sendMessage(chatId,
-        `✅ **Reminder Created Successfully!**\n\n` +
+        `✅ **${reminderTypeText} Created Successfully!**\n\n` +
         `📹 **Camera:** ${cameraName}\n` +
-        `⏱️ **Interval:** Every ${intervalText}\n` +
+        `⏱️ **Interval:** Every ${intervalText}${promptText}\n` +
         `🆔 **ID:** ${id.substring(0, 8)}...\n\n` +
-        `Your first snapshot will be sent in ${intervalText}.`,
+        `Your first ${isSmartReminder ? 'AI analysis' : 'snapshot'} will be sent in ${intervalText}.`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -1519,24 +1668,44 @@ class TelegramService {
 
   private async handleAddReminder(chatId: number) {
     await this.bot.sendMessage(chatId,
-      '⏰ **Add New Reminder**\n\nSelect an interval:',
+      '⏰ **Add New Reminder**\n\nChoose reminder type:',
       {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '⏱️ 15 min', callback_data: 'reminder_interval_15' },
-              { text: '⏱️ 30 min', callback_data: 'reminder_interval_30' }
-            ],
-            [
-              { text: '⏱️ 1 hour', callback_data: 'reminder_interval_60' },
-              { text: '⏱️ 2 hours', callback_data: 'reminder_interval_120' }
-            ],
-            [
-              { text: '⏱️ 6 hours', callback_data: 'reminder_interval_360' },
-              { text: '⏱️ 12 hours', callback_data: 'reminder_interval_720' }
+              { text: '📸 Simple Reminder', callback_data: 'reminder_type_simple' },
+              { text: '🤖 Smart AI Reminder', callback_data: 'reminder_type_smart' }
             ],
             [{ text: '🔙 Back to Reminders', callback_data: 'menu_reminders' }]
+          ]
+        }
+      }
+    );
+  }
+
+  private async showReminderIntervals(chatId: number, reminderType: 'simple' | 'smart') {
+    const typeText = reminderType === 'smart' ? '🤖 Smart AI Reminder' : '📸 Simple Reminder';
+    
+    await this.bot.sendMessage(chatId,
+      `⏰ **${typeText}**\n\nSelect an interval:`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '⏱️ 15 min', callback_data: `reminder_interval_${reminderType}_15` },
+              { text: '⏱️ 30 min', callback_data: `reminder_interval_${reminderType}_30` }
+            ],
+            [
+              { text: '⏱️ 1 hour', callback_data: `reminder_interval_${reminderType}_60` },
+              { text: '⏱️ 2 hours', callback_data: `reminder_interval_${reminderType}_120` }
+            ],
+            [
+              { text: '⏱️ 6 hours', callback_data: `reminder_interval_${reminderType}_360` },
+              { text: '⏱️ 12 hours', callback_data: `reminder_interval_${reminderType}_720` }
+            ],
+            [{ text: '🔙 Back to Type Selection', callback_data: 'reminder_add' }]
           ]
         }
       }

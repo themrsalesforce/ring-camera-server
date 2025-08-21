@@ -4,5 +4,6 @@
   "cameraName": "Front Door",
   "telegramAuthorizedUsers": [426747873],
   "telegramPendingUsers": [],
-  "telegramReminders": []
+  "telegramReminders": [],
+  "requestHistory": []
 }
