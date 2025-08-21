@@ -261,7 +261,7 @@ class TelegramService {
         return;
       }
 
-      this.stopReminder(reminderId);
+      this.cleanupReminder(reminderId);
       await this.bot.sendMessage(chatId, `✅ Reminder ${reminderId} stopped.`);
     });
 
@@ -813,30 +813,64 @@ class TelegramService {
     const intervalMs = reminder.interval * 60 * 1000;
     const timeout = setInterval(async () => {
       if (!reminder.isActive) {
-        this.stopReminder(reminder.id);
+        // Clean up inactive reminder
+        const interval = this.reminderIntervals.get(reminder.id);
+        if (interval) {
+          clearInterval(interval);
+          this.reminderIntervals.delete(reminder.id);
+        }
         return;
       }
 
       try {
+        console.log(`Executing reminder ${reminder.id} for camera ${reminder.cameraName}`);
         const imageBase64 = await getSnapshotBase64(reminder.cameraName || '');
         const imageBuffer = Buffer.from(imageBase64, 'base64');
-        const caption = `🕐 Automated snapshot${reminder.cameraName ? ` from ${reminder.cameraName}` : ''}`;
         
-        await this.bot.sendPhoto(reminder.chatId, imageBuffer, { caption });
+        const intervalText = reminder.interval >= 60 ? 
+          `${Math.floor(reminder.interval / 60)} hour${Math.floor(reminder.interval / 60) > 1 ? 's' : ''}` :
+          `${reminder.interval} minute${reminder.interval > 1 ? 's' : ''}`;
+        
+        const caption = `⏰ **Automated Reminder**\n📹 Camera: ${reminder.cameraName}\n⏱️ Every ${intervalText}\n📅 ${new Date().toLocaleString()}`;
+        
+        await this.bot.sendPhoto(reminder.chatId, imageBuffer, { 
+          caption,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🗑️ Stop Reminder', callback_data: `reminder_stop_${reminder.id}` },
+                { text: '📋 View All', callback_data: 'reminder_list' }
+              ]
+            ]
+          }
+        });
+        
         reminder.lastRun = Date.now();
         this.saveReminders();
+        
+        console.log(`Reminder ${reminder.id} executed successfully`);
       } catch (error) {
         console.error(`Error in reminder ${reminder.id}:`, error);
         await this.bot.sendMessage(reminder.chatId, 
-          `❌ Error taking automated snapshot: ${(error as Error).message}`
+          `❌ **Reminder Error**\n\nFailed to take automated snapshot from **${reminder.cameraName}**:\n${(error as Error).message}`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🗑️ Stop This Reminder', callback_data: `reminder_stop_${reminder.id}` }]
+              ]
+            }
+          }
         );
       }
     }, intervalMs);
 
     this.reminderIntervals.set(reminder.id, timeout);
+    console.log(`Started reminder ${reminder.id} with ${reminder.interval} minute interval`);
   }
 
-  private stopReminder(reminderId: string) {
+  private cleanupReminder(reminderId: string) {
     const timeout = this.reminderIntervals.get(reminderId);
     if (timeout) {
       clearInterval(timeout);
@@ -1110,6 +1144,8 @@ class TelegramService {
       } else if (data === 'reminder_list') {
         console.log('Listing reminders');
         await this.handleListReminders(chatId);
+      } else if (data.startsWith('reminder_')) {
+        await this.handleReminderCallback(chatId, data, userId);
       } else if (data.startsWith('admin_')) {
         await this.handleAdminCallback(chatId, data, userId);
       } else {
@@ -1280,19 +1316,226 @@ class TelegramService {
     });
   }
 
+  private async handleReminderCallback(chatId: number, data: string, userId?: number) {
+    try {
+      if (data.startsWith('reminder_interval_')) {
+        const interval = parseInt(data.replace('reminder_interval_', ''));
+        await this.showCameraSelectionForReminder(chatId, interval);
+      } else if (data.startsWith('reminder_camera_')) {
+        const parts = data.split('_');
+        const interval = parseInt(parts[2]);
+        const cameraNameBase64 = parts[3];
+        const cameraName = Buffer.from(cameraNameBase64, 'base64').toString();
+        await this.createReminder(chatId, interval, cameraName);
+      } else if (data.startsWith('reminder_stop_')) {
+        const reminderId = data.replace('reminder_stop_', '');
+        await this.stopReminder(chatId, reminderId);
+      } else if (data.startsWith('reminder_test_')) {
+        const reminderId = data.replace('reminder_test_', '');
+        await this.testReminder(chatId, reminderId);
+      }
+    } catch (error) {
+      console.error('Error handling reminder callback:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${(error as Error).message}`);
+    }
+  }
+
+  private async showCameraSelectionForReminder(chatId: number, interval: number) {
+    try {
+      const cameras = await getCameraNames();
+      
+      if (cameras.length === 0) {
+        await this.bot.sendMessage(chatId, 
+          '❌ **No Cameras Found**\n\nNo Ring cameras are available.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔙 Back to Reminders', callback_data: 'menu_reminders' }]
+              ]
+            }
+          }
+        );
+        return;
+      }
+
+      const intervalText = interval >= 60 ? 
+        `${Math.floor(interval / 60)} hour${Math.floor(interval / 60) > 1 ? 's' : ''}` :
+        `${interval} minute${interval > 1 ? 's' : ''}`;
+
+      const cameraButtons = cameras.map(camera => [
+        { 
+          text: `📹 ${camera}`, 
+          callback_data: `reminder_camera_${interval}_${Buffer.from(camera).toString('base64')}` 
+        }
+      ]);
+
+      cameraButtons.push([{ text: '🔙 Back to Intervals', callback_data: 'reminder_add' }]);
+
+      await this.bot.sendMessage(chatId,
+        `⏰ **New Reminder Setup**\n\n` +
+        `⏱️ **Interval:** Every ${intervalText}\n\n` +
+        `📹 **Select Camera:**`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: cameraButtons }
+        }
+      );
+    } catch (error) {
+      console.error('Error showing camera selection for reminder:', error);
+      await this.bot.sendMessage(chatId, '❌ Error loading cameras');
+    }
+  }
+
+  private async createReminder(chatId: number, interval: number, cameraName: string) {
+    try {
+      const id = `${chatId}_${Date.now()}`;
+      const reminder: Reminder = {
+        id,
+        chatId,
+        interval,
+        cameraName,
+        lastRun: Date.now(),
+        isActive: true
+      };
+
+      this.reminders.set(id, reminder);
+      this.saveReminders();
+      this.startReminder(reminder);
+
+      const intervalText = interval >= 60 ? 
+        `${Math.floor(interval / 60)} hour${Math.floor(interval / 60) > 1 ? 's' : ''}` :
+        `${interval} minute${interval > 1 ? 's' : ''}`;
+
+      // Track the reminder creation
+      const menuState = this.menuStates.get(chatId);
+      if (menuState?.user) {
+        this.trackRequest(menuState.user.id, menuState.user, 'Reminder Created', `Set ${intervalText} reminder for ${cameraName}`, cameraName, true);
+      }
+
+      await this.bot.sendMessage(chatId,
+        `✅ **Reminder Created Successfully!**\n\n` +
+        `📹 **Camera:** ${cameraName}\n` +
+        `⏱️ **Interval:** Every ${intervalText}\n` +
+        `🆔 **ID:** ${id.substring(0, 8)}...\n\n` +
+        `Your first snapshot will be sent in ${intervalText}.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🔄 Test Now', callback_data: `reminder_test_${id}` },
+                { text: '📋 View All', callback_data: 'reminder_list' }
+              ],
+              [{ text: '🔙 Back to Reminders', callback_data: 'menu_reminders' }]
+            ]
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error creating reminder:', error);
+      await this.bot.sendMessage(chatId, `❌ Error creating reminder: ${(error as Error).message}`);
+    }
+  }
+
+  private async stopReminder(chatId: number, reminderId: string) {
+    try {
+      const reminder = this.reminders.get(reminderId);
+      if (!reminder || reminder.chatId !== chatId) {
+        await this.bot.sendMessage(chatId, '❌ Reminder not found or access denied.');
+        return;
+      }
+
+      reminder.isActive = false;
+      this.reminders.delete(reminderId);
+      
+      const interval = this.reminderIntervals.get(reminderId);
+      if (interval) {
+        clearInterval(interval);
+        this.reminderIntervals.delete(reminderId);
+      }
+
+      this.saveReminders();
+
+      // Track the reminder stop
+      const menuState = this.menuStates.get(chatId);
+      if (menuState?.user) {
+        this.trackRequest(menuState.user.id, menuState.user, 'Reminder Stopped', `Stopped reminder for ${reminder.cameraName}`, reminder.cameraName, true);
+      }
+
+      await this.bot.sendMessage(chatId,
+        `🛑 **Reminder Stopped**\n\n` +
+        `The reminder for **${reminder.cameraName}** has been stopped and removed.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📋 View Remaining', callback_data: 'reminder_list' }],
+              [{ text: '🔙 Back to Reminders', callback_data: 'menu_reminders' }]
+            ]
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error stopping reminder:', error);
+      await this.bot.sendMessage(chatId, `❌ Error stopping reminder: ${(error as Error).message}`);
+    }
+  }
+
+  private async testReminder(chatId: number, reminderId: string) {
+    try {
+      const reminder = this.reminders.get(reminderId);
+      if (!reminder || reminder.chatId !== chatId) {
+        await this.bot.sendMessage(chatId, '❌ Reminder not found or access denied.');
+        return;
+      }
+
+      await this.bot.sendMessage(chatId, `🔄 Testing reminder for **${reminder.cameraName}**...`, { parse_mode: 'Markdown' });
+
+      // Send a test snapshot
+      const imageBase64 = await getSnapshotBase64(reminder.cameraName || '');
+      const imageBuffer = Buffer.from(imageBase64, 'base64');
+
+      await this.bot.sendPhoto(chatId, imageBuffer, {
+        caption: `🧪 **Test Reminder**\n📹 Camera: ${reminder.cameraName}\n📅 ${new Date().toLocaleString()}`,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📋 Back to Reminders', callback_data: 'reminder_list' }]
+          ]
+        }
+      });
+
+      // Track the test
+      const menuState = this.menuStates.get(chatId);
+      if (menuState?.user) {
+        this.trackRequest(menuState.user.id, menuState.user, 'Reminder Test', `Tested reminder for ${reminder.cameraName}`, reminder.cameraName, true);
+      }
+
+    } catch (error) {
+      console.error('Error testing reminder:', error);
+      await this.bot.sendMessage(chatId, `❌ Error testing reminder: ${(error as Error).message}`);
+    }
+  }
+
   private async handleAddReminder(chatId: number) {
     await this.bot.sendMessage(chatId,
-      '⏰ **Add New Reminder**\n\n' +
-      'Use the command format:\n' +
-      '`/remind [minutes] [camera]`\n\n' +
-      'Examples:\n' +
-      '• `/remind 30 Front Door`\n' +
-      '• `/remind 60 Backyard`\n' +
-      '• `/remind 120` (default camera)',
+      '⏰ **Add New Reminder**\n\nSelect an interval:',
       {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
+            [
+              { text: '⏱️ 15 min', callback_data: 'reminder_interval_15' },
+              { text: '⏱️ 30 min', callback_data: 'reminder_interval_30' }
+            ],
+            [
+              { text: '⏱️ 1 hour', callback_data: 'reminder_interval_60' },
+              { text: '⏱️ 2 hours', callback_data: 'reminder_interval_120' }
+            ],
+            [
+              { text: '⏱️ 6 hours', callback_data: 'reminder_interval_360' },
+              { text: '⏱️ 12 hours', callback_data: 'reminder_interval_720' }
+            ],
             [{ text: '🔙 Back to Reminders', callback_data: 'menu_reminders' }]
           ]
         }
@@ -1305,25 +1548,50 @@ class TelegramService {
       .filter(r => r.chatId === chatId && r.isActive);
 
     if (userReminders.length === 0) {
-      await this.bot.sendMessage(chatId, 'No active reminders found.', {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🔙 Back to Reminders', callback_data: 'menu_reminders' }]
-          ]
+      await this.bot.sendMessage(chatId, 
+        '⏰ **No Active Reminders**\n\nYou don\'t have any active reminders set up yet.',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '➕ Add New Reminder', callback_data: 'reminder_add' }],
+              [{ text: '🔙 Back to Reminders', callback_data: 'menu_reminders' }]
+            ]
+          }
         }
-      });
+      );
       return;
     }
 
-    const reminderList = userReminders.map(r => 
-      `**ID:** ${r.id}\n` +
-      `**Interval:** ${r.interval} minutes\n` +
-      `**Camera:** ${r.cameraName || 'Default'}\n` +
-      `**Last run:** ${new Date(r.lastRun).toLocaleString()}`
-    ).join('\n\n');
+    // Send each reminder as a separate message with control buttons
+    for (const reminder of userReminders) {
+      const intervalText = reminder.interval >= 60 ? 
+        `${Math.floor(reminder.interval / 60)} hour${Math.floor(reminder.interval / 60) > 1 ? 's' : ''}` :
+        `${reminder.interval} minute${reminder.interval > 1 ? 's' : ''}`;
+      
+      const reminderInfo = 
+        `⏰ **Active Reminder**\n\n` +
+        `📹 **Camera:** ${reminder.cameraName || 'Default'}\n` +
+        `⏱️ **Interval:** Every ${intervalText}\n` +
+        `📅 **Last run:** ${new Date(reminder.lastRun).toLocaleString()}\n` +
+        `🆔 **ID:** ${reminder.id.substring(0, 8)}...`;
 
+      await this.bot.sendMessage(chatId, reminderInfo, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🗑️ Stop Reminder', callback_data: `reminder_stop_${reminder.id}` },
+              { text: '🔄 Test Now', callback_data: `reminder_test_${reminder.id}` }
+            ]
+          ]
+        }
+      });
+    }
+
+    // Summary message
     await this.bot.sendMessage(chatId, 
-      `⏰ **Active Reminders:**\n\n${reminderList}`,
+      `📊 **Total Active Reminders:** ${userReminders.length}`,
       {
         parse_mode: 'Markdown',
         reply_markup: {
