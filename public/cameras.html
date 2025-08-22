@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cameras • Ring Camera Server</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e5e7eb; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin: 8px 0 16px; }
+    h1 { font-size: 22px; margin: 0; }
+    .actions { display:flex; gap:10px; flex-wrap: wrap; }
+    .btn { padding: 10px 14px; border-radius: 10px; border:1px solid #334155; background:#111827; color:#e5e7eb; cursor:pointer; }
+    .btn:hover { background:#0b1220; }
+    .primary { border-color:#4f46e5; background:#1f2347; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
+    .card { background:#0b1022; border:1px solid #1e2a4a; border-radius:12px; overflow:hidden; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+    .thumb { width:100%; height:160px; display:block; object-fit:cover; background:#0b132b; }
+    .card-body { padding:12px; }
+    .title { font-weight:700; margin:0 0 8px; font-size:15px; }
+    .row { display:flex; gap:8px; flex-wrap: wrap; }
+    .chip { font-size:12px; border:1px solid #2a3a63; padding:4px 8px; border-radius:999px; color:#c7d2fe; }
+    .muted { color:#93a4c3; font-size: 12px; }
+    .toolbar { display:flex; align-items:center; gap:10px; margin: 12px 0 16px; }
+    input[type="search"] { width: 280px; max-width: 100%; background:#0b132b; color:#e5e7eb; border:1px solid #233052; padding:10px 12px; border-radius:10px; outline:none; }
+    .thumb.loading { display:flex; align-items:center; justify-content:center; color:#93a4c3; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📹 Cameras</h1>
+      <div class="actions">
+        <a class="btn" href="/">🏠 Dashboard</a>
+        <a class="btn" href="/history.html">📊 Request History</a>
+        <a class="btn" href="/images.html">📸 Image Gallery</a>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Search cameras..." />
+      <button class="btn" id="refresh">🔄 Refresh</button>
+    </div>
+
+    <div id="grid" class="grid"></div>
+  </div>
+
+  <script>
+    const grid = document.getElementById('grid');
+    const search = document.getElementById('search');
+    const refreshBtn = document.getElementById('refresh');
+    let cameras = [];
+
+    function cameraCard(name){
+      const id = btoa(name).replace(/=/g,'');
+      return `
+        <div class="card" data-name="${name.toLowerCase()}">
+          <img id="thumb-${id}" class="thumb loading" alt="${name}" src="" />
+          <div class="card-body">
+            <div class="title">${name}</div>
+            <div class="row" style="margin:8px 0 12px">
+              <span class="chip">Live soon</span>
+              <span class="chip">Snapshots</span>
+              <span class="chip">AI</span>
+            </div>
+            <div class="row">
+              <button class="btn" onclick="loadSnapshot('${encodeURIComponent(name)}','${id}')">📸 Snapshot</button>
+              <button class="btn" onclick="openAsk('${encodeURIComponent(name)}')">🤖 Ask AI</button>
+            </div>
+            <div class="muted" id="meta-${id}" style="margin-top:8px"></div>
+          </div>
+        </div>`
+    }
+
+    async function fetchCameras(){
+      const res = await fetch('/api/cameras');
+      const data = await res.json();
+      cameras = data.cameras || [];
+      render();
+    }
+
+    function render(){
+      const q = (search.value || '').toLowerCase().trim();
+      const list = q ? cameras.filter(n => n.toLowerCase().includes(q)) : cameras;
+      grid.innerHTML = list.map(cameraCard).join('');
+      // lazy-load first row thumbs
+      list.slice(0, Math.min(6, list.length)).forEach(n => loadSnapshot(encodeURIComponent(n), btoa(n).replace(/=/g,''), true));
+    }
+
+    async function loadSnapshot(encName, id, silent){
+      const img = document.getElementById('thumb-'+id);
+      const meta = document.getElementById('meta-'+id);
+      try{
+        if(!silent){ img.classList.add('loading'); img.alt = 'Loading...'; img.removeAttribute('src'); }
+        const url = encName ? `/api/snapshot?camera=${encName}&t=${Date.now()}` : `/api/snapshot?t=${Date.now()}`;
+        img.src = url;
+        img.onload = ()=>{ img.classList.remove('loading'); meta.textContent = new Date().toLocaleString(); };
+        img.onerror = ()=>{ img.classList.add('loading'); img.alt='Snapshot unavailable'; meta.textContent = 'Unavailable'; };
+      } catch (e){
+        img.classList.add('loading'); img.alt = 'Error'; meta.textContent = String(e);
+      }
+    }
+
+    function openAsk(encName){
+      // For now, just deep-link to the Telegram bot with a hint
+      alert('Use the Telegram bot → Ask AI → select "' + decodeURIComponent(encName) + '"');
+    }
+
+    search.addEventListener('input', render);
+    refreshBtn.addEventListener('click', fetchCameras);
+    fetchCameras();
+  </script>
+</body>
+</html>
+
+
