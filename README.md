@@ -1,77 +1,190 @@
-# Ring Camera Server with Telegram Bot
+# Ring Camera Server
 
-A Node.js server that integrates Ring cameras with a Telegram bot for remote monitoring and automated snapshots.
+A comprehensive Ring camera management system with Telegram bot integration, AI-powered image analysis, and smart motion alerts.
 
-## Features
+## 🚀 Features
 
-- **Ring Camera Integration**: Connect to your Ring cameras and get snapshots
-- **Telegram Bot**: Control your cameras and set up automated reminders via Telegram
-- **Automated Reminders**: Schedule periodic snapshots from specific cameras
-- **Web Interface**: Manage configuration and view camera feeds via web browser
-- **Bin Classification**: AI-powered bin status detection (requires OpenAI API)
-- **AI Image Analysis**: Ask questions about camera images and get AI-powered answers
+- **📸 Camera Management**: View and control all Ring cameras
+- **🤖 AI Image Analysis**: Ask questions about camera snapshots using GPT-4o
+- **📱 Telegram Bot**: Full-featured bot with interactive menus and admin controls
+- **⏰ Smart Reminders**: Automated snapshots with optional AI analysis
+- **🚨 Motion Alerts**: Intelligent rule-based motion detection and alerts
+- **👥 User Management**: Admin-controlled access with approval system
+- **📊 Request History**: Track all bot interactions and system usage
+- **🖼️ Image Gallery**: Local storage and web-based image management
+- **🌐 Web Dashboard**: Modern web interface for camera control and monitoring
+- **⚙️ Web Setup**: Easy configuration through web-based setup wizard
 
-## 🚀 Quick Setup
+## 🚨 Smart Motion Alerts
 
-### Prerequisites
+The system includes a sophisticated rule engine for motion alerts:
 
-1. Node.js (v20 or higher)
-2. Ring account with cameras
-3. OpenAI API key (for AI analysis features)
+- **Idle Threshold Detection**: Alert when motion occurs after a period of inactivity
+- **Time-based Rules**: Configure active hours for different alert types
+- **AI-powered Analysis**: Optional AI criteria for intelligent alert filtering
+- **Cooldown Management**: Prevent alert spam with configurable cooldown periods
+- **Per-camera Configuration**: Different rules for different cameras
+- **Telegram Integration**: Instant alerts with snapshots and AI analysis
 
-### Installation
+### Alert Rule Examples:
+- **"Boys Room Idle Entry"**: Alert when motion after 10min idle + AI confirms someone is awake
+- **"Front Door Business Hours"**: Alert during 8AM-6PM only, 30min idle threshold
+- **"Night Movement"**: Alert during 10PM-6AM with AI movement detection
 
-1. **Clone and install:**
+## 🛠️ Setup
+
+### Quick Start
+1. **Clone the repository**:
    ```bash
    git clone https://github.com/themrsalesforce/ring-camera-server.git
    cd ring-camera-server
+   ```
+
+2. **Install dependencies**:
+   ```bash
    npm install
    ```
 
-2. **Start the server:**
+3. **Start the server**:
    ```bash
    npm run dev
    ```
 
-3. **Complete setup via web interface:**
-   - Open http://localhost:3000
-   - Click "🚀 Start Setup"
-   - Follow the 4-step setup wizard:
-     - **Step 1**: Create Telegram bot and get your User ID
-     - **Step 2**: Authenticate with Ring account
-     - **Step 3**: Add OpenAI API key
-     - **Step 4**: Complete setup
+4. **Access the web setup**:
+   Open `http://localhost:3000` and follow the setup wizard
 
-4. **Start using your bot:**
-   - Message your bot on Telegram
-   - Send `/start` to see the interactive menu
+### Configuration
+The web setup wizard will guide you through:
+- **Telegram Bot Token**: Create a bot via @BotFather
+- **Admin User ID**: Your Telegram user ID for admin access
+- **Ring Authentication**: Login to Ring and get refresh token
+- **OpenAI API Key**: For AI image analysis features
 
-**That's it!** No code editing required - everything is configured through the web interface.
+## 📱 Telegram Bot Usage
 
-## Telegram Bot Usage
+### Main Commands
+- `/start` - Access the main menu (requires authorization)
+- `/help` - Show help information
+- `/admin` - Admin panel (admin only)
 
-Message your bot on Telegram and send `/start` to access the interactive menu system:
+### Interactive Features
+- **📸 Take Snapshot**: Select camera and capture image
+- **🤖 Ask AI Question**: Ask questions about camera images
+- **⏰ Manage Reminders**: Create smart or simple automated reminders
+- **📋 List Cameras**: View all available cameras
+- **🚨 Manage Alerts**: Configure motion alert rules (admin only)
 
-- 📸 **Snapshots** - Take instant photos from any camera
-- 🤖 **AI Analysis** - Ask questions about camera images (powered by GPT-4o)  
-- ⏰ **Reminders** - Set up automated snapshots
-- 🔧 **Admin Panel** - User management and system monitoring (admin only)
+### Admin Features
+- **👥 User Management**: Approve/deny user access requests
+- **📊 Request History**: View system usage and interactions
+- **🖼️ Image Gallery**: Browse stored camera images
+- **🚨 Alert Rules**: Create and manage motion alert rules
 
+## 🌐 Web Dashboard
 
-## Web Dashboard
+Access the web interface at `http://localhost:3000`:
 
-Visit `http://localhost:3000` for:
+- **📸 Camera Controls**: View cameras and take snapshots
+- **📺 Live View**: Real-time camera monitoring
+- **📊 Request History**: System usage analytics
+- **🖼️ Image Gallery**: Browse stored images
+- **⚙️ Admin Panel**: User and system management
 
-- 🌐 **Setup Wizard** - Easy configuration interface
-- 📊 **Request History** - Monitor all bot activity  
-- 📸 **Image Gallery** - View all captured snapshots
-- ⚙️ **System Settings** - Manage configuration
+## 🔧 API Endpoints
 
-## Development
+### Camera Management
+- `GET /api/cameras` - List all cameras
+- `GET /api/snapshot?camera=<name>` - Get camera snapshot
+- `POST /api/analyze` - AI image analysis
 
-```bash
-npm run dev      # Start development server
-npm run build    # Build for production
+### Alert Management
+- `GET /api/alerts` - List alert rules
+- `POST /api/alerts` - Create new alert rule
+- `PUT /api/alerts/:id` - Update alert rule
+- `DELETE /api/alerts/:id` - Delete alert rule
+- `GET /api/alerts/status` - Alert service status
+
+### System Management
+- `GET /api/history` - Request history
+- `GET /api/images` - Stored images
+- `GET /api/config` - System configuration
+
+## 🏗️ Architecture
+
+- **Backend**: Node.js with Express.js
+- **Ring Integration**: ring-client-api for camera control
+- **AI Analysis**: OpenAI GPT-4o for image understanding
+- **Telegram Bot**: node-telegram-bot-api for bot functionality
+- **Storage**: Local file system for images and configuration
+- **Frontend**: HTML/CSS/JavaScript for web interface
+
+## 📁 Project Structure
+
+```
+ring-camera-server/
+├── src/
+│   ├── services/
+│   │   ├── ring.ts          # Ring camera integration
+│   │   ├── telegram.ts      # Telegram bot functionality
+│   │   ├── vision.ts        # AI image analysis
+│   │   ├── alerts.ts        # Motion alert system
+│   │   ├── config.ts        # Configuration management
+│   │   └── ringAuth.ts      # Ring authentication
+│   └── server.ts            # Main server application
+├── public/
+│   ├── images/              # Stored camera images
+│   ├── index.html           # Main dashboard
+│   ├── setup.html           # Setup wizard
+│   └── ...                  # Other web pages
+├── config.json              # System configuration
+└── package.json             # Dependencies
 ```
 
-That's it! Your Ring Camera Server is ready to use. 🎉
+## 🔒 Security Features
+
+- **Admin-only Access**: Sensitive features require admin authorization
+- **User Approval System**: New users must be approved by admin
+- **Secure Configuration**: Sensitive data stored securely
+- **Request Logging**: All interactions tracked for security
+
+## 🚀 Advanced Features
+
+### Smart Reminders
+- **Simple Reminders**: Regular snapshots at configurable intervals
+- **AI Reminders**: Snapshots with AI analysis and insights
+- **Flexible Scheduling**: 1 minute to 12 hour intervals
+
+### Motion Alert Rules
+- **Idle Detection**: Alert when motion occurs after inactivity
+- **Time Windows**: Configure active hours for different scenarios
+- **AI Criteria**: Optional AI analysis for intelligent filtering
+- **Cooldown Management**: Prevent alert spam
+
+### Image Management
+- **Local Storage**: All images stored locally for privacy
+- **Organized Structure**: Images organized by camera and timestamp
+- **Web Gallery**: Easy browsing and management interface
+- **Telegram Integration**: Send images directly via bot
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🆘 Support
+
+For issues and questions:
+1. Check the existing issues
+2. Create a new issue with detailed information
+3. Include logs and error messages
+
+---
+
+**Built with ❤️ for Ring camera enthusiasts**
