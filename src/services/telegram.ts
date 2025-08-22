@@ -415,6 +415,9 @@ class TelegramService {
             ],
             [
               { text: '📸 View Images', callback_data: 'admin_images' },
+              { text: '🚨 Manage Alerts', callback_data: 'admin_alerts' }
+            ],
+            [
               { text: '🏠 Main Menu', callback_data: 'menu_main' }
             ]
           ]
@@ -739,6 +742,15 @@ class TelegramService {
       case 'admin_images':
         await this.showStoredImages(chatId);
         break;
+      case 'admin_alerts':
+        await this.showAlertManagement(chatId);
+        break;
+      case 'alerts_list':
+        await this.showAlertRules(chatId);
+        break;
+      case 'alerts_status':
+        await this.showAlertStatus(chatId);
+        break;
       default:
         if (data.startsWith('admin_approve_')) {
           const targetUserId = parseInt(data.replace('admin_approve_', ''));
@@ -749,6 +761,73 @@ class TelegramService {
         } else if (data.startsWith('admin_remove_')) {
           const targetUserId = parseInt(data.replace('admin_remove_', ''));
           await this.removeUser(chatId, targetUserId);
+        } else if (data.startsWith('alerts_toggle_')) {
+          const ruleId = data.replace('alerts_toggle_', '');
+          await this.toggleAlertRule(chatId, ruleId);
+        } else if (data.startsWith('alerts_delete_')) {
+          const ruleId = data.replace('alerts_delete_', '');
+          await this.deleteAlertRule(chatId, ruleId);
+        } else if (data.startsWith('alerts_test_')) {
+          const ruleId = data.replace('alerts_test_', '');
+          await this.testAlertRule(chatId, ruleId);
+        } else if (data === 'alerts_add') {
+          await this.showAlertCreation(chatId);
+        } else if (data.startsWith('alerts_create_camera_')) {
+          const cameraName = Buffer.from(data.replace('alerts_create_camera_', ''), 'base64').toString();
+          await this.showAlertIdleThreshold(chatId, cameraName);
+        } else if (data.startsWith('alerts_idle_')) {
+          const parts = data.replace('alerts_idle_', '').split('_');
+          const cameraName = Buffer.from(parts[0], 'base64').toString();
+          const idleMinutes = parseInt(parts[1]);
+          await this.showAlertActiveHours(chatId, cameraName, idleMinutes);
+        } else if (data.startsWith('alerts_hours_')) {
+          const parts = data.replace('alerts_hours_', '').split('_');
+          const cameraName = Buffer.from(parts[0], 'base64').toString();
+          const idleMinutes = parseInt(parts[1]);
+          const startHour = parseInt(parts[2]);
+          const endHour = parseInt(parts[3]);
+          await this.showAlertCooldown(chatId, cameraName, idleMinutes, startHour, endHour);
+        } else if (data.startsWith('alerts_cooldown_')) {
+          const parts = data.replace('alerts_cooldown_', '').split('_');
+          const cameraName = Buffer.from(parts[0], 'base64').toString();
+          const idleMinutes = parseInt(parts[1]);
+          const startHour = parseInt(parts[2]);
+          const endHour = parseInt(parts[3]);
+          const cooldownMinutes = parseInt(parts[4]);
+          await this.showAlertAICriteria(chatId, cameraName, idleMinutes, startHour, endHour, cooldownMinutes);
+        } else if (data.startsWith('alerts_ai_')) {
+          const parts = data.replace('alerts_ai_', '').split('_');
+          const cameraName = Buffer.from(parts[0], 'base64').toString();
+          const idleMinutes = parseInt(parts[1]);
+          const startHour = parseInt(parts[2]);
+          const endHour = parseInt(parts[3]);
+          const cooldownMinutes = parseInt(parts[4]);
+          const useAI = parts[5];
+          
+          if (useAI === 'yes') {
+            await this.showAlertAIPromptSelection(chatId, cameraName, idleMinutes, startHour, endHour, cooldownMinutes);
+          } else {
+            await this.createAlertRule(chatId, cameraName, idleMinutes, startHour, endHour, cooldownMinutes);
+          }
+        } else if (data.startsWith('alerts_prompt_')) {
+          const parts = data.replace('alerts_prompt_', '').split('_');
+          const cameraName = Buffer.from(parts[0], 'base64').toString();
+          const idleMinutes = parseInt(parts[1]);
+          const startHour = parseInt(parts[2]);
+          const endHour = parseInt(parts[3]);
+          const cooldownMinutes = parseInt(parts[4]);
+          const promptIndex = parseInt(parts[5]);
+          
+          const commonPrompts = [
+            'Is someone in the room?',
+            'Is someone awake?',
+            'Is there movement?',
+            'Is the room occupied?',
+            'Is someone sleeping?'
+          ];
+          
+          const aiPrompt = commonPrompts[promptIndex] || 'Is someone in the room?';
+          await this.createAlertRule(chatId, cameraName, idleMinutes, startHour, endHour, cooldownMinutes, aiPrompt);
         }
         break;
     }
@@ -1205,6 +1284,8 @@ class TelegramService {
       } else if (data.startsWith('reminder_')) {
         await this.handleReminderCallback(chatId, data, userId);
       } else if (data.startsWith('admin_')) {
+        await this.handleAdminCallback(chatId, data, userId);
+      } else if (data.startsWith('alerts_')) {
         await this.handleAdminCallback(chatId, data, userId);
       } else {
         console.log(`Unknown callback data: ${data}`);
@@ -1795,6 +1876,451 @@ class TelegramService {
         }
       }
     );
+  }
+
+  // Alert Management Methods
+  private async showAlertManagement(chatId: number) {
+    const { getAlertRules } = await import('./config.js');
+    const rules = getAlertRules();
+    
+    const activeRules = rules.filter(rule => rule.enabled);
+    const inactiveRules = rules.filter(rule => !rule.enabled);
+    
+    await this.bot.sendMessage(chatId,
+      `🚨 **Alert Management**\n\n` +
+      `📊 **Active Rules:** ${activeRules.length}\n` +
+      `⏸️ **Inactive Rules:** ${inactiveRules.length}\n\n` +
+      `Manage motion alert rules for your cameras.`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: `📋 View Rules (${rules.length})`, callback_data: 'alerts_list' },
+              { text: '➕ Add New Rule', callback_data: 'alerts_add' }
+            ],
+            [
+              { text: '📊 Alert Status', callback_data: 'alerts_status' },
+              { text: '🔙 Back to Admin', callback_data: 'admin_menu' }
+            ]
+          ]
+        }
+      }
+    );
+  }
+
+  private async showAlertRules(chatId: number) {
+    const { getAlertRules } = await import('./config.js');
+    const rules = getAlertRules();
+    
+    if (rules.length === 0) {
+      await this.bot.sendMessage(chatId,
+        '🚨 **No Alert Rules**\n\nNo alert rules have been configured yet.',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '➕ Add First Rule', callback_data: 'alerts_add' }],
+              [{ text: '🔙 Back to Alerts', callback_data: 'admin_alerts' }]
+            ]
+          }
+        }
+      );
+      return;
+    }
+
+    // Send each rule as a separate message
+    for (const rule of rules) {
+      const status = rule.enabled ? '🟢 Active' : '🔴 Inactive';
+      const lastTriggered = rule.lastTriggered ? 
+        `\n📅 **Last Triggered:** ${new Date(rule.lastTriggered).toLocaleString()}` : 
+        '\n📅 **Last Triggered:** Never';
+      
+      const ruleInfo = 
+        `🚨 **Alert Rule**\n\n` +
+        `📹 **Camera:** ${rule.cameraName}\n` +
+        `📊 **Status:** ${status}\n` +
+        `⏱️ **Idle Threshold:** ${rule.idleThresholdMinutes} minutes\n` +
+        `🕐 **Active Hours:** ${rule.activeHours.start}:00 - ${rule.activeHours.end}:00\n` +
+        `⏸️ **Cooldown:** ${rule.cooldownMinutes} minutes\n` +
+        `🤖 **AI Criteria:** ${rule.aiCriteria?.enabled ? 'Enabled' : 'Disabled'}` +
+        lastTriggered;
+
+      const buttons = [
+        [
+          { text: rule.enabled ? '⏸️ Disable' : '▶️ Enable', callback_data: `alerts_toggle_${rule.id}` },
+          { text: '✏️ Edit', callback_data: `alerts_edit_${rule.id}` }
+        ],
+        [
+          { text: '🗑️ Delete', callback_data: `alerts_delete_${rule.id}` },
+          { text: '🔄 Test', callback_data: `alerts_test_${rule.id}` }
+        ]
+      ];
+
+      await this.bot.sendMessage(chatId, ruleInfo, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buttons }
+      });
+    }
+
+    // Summary message
+    await this.bot.sendMessage(chatId,
+      `📊 **Total Rules:** ${rules.length}`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔙 Back to Alerts', callback_data: 'admin_alerts' }]
+          ]
+        }
+      }
+    );
+  }
+
+  private async showAlertStatus(chatId: number) {
+    try {
+      const { alertsService } = await import('./alerts.js');
+      const motionStates = Array.from(alertsService.getMotionStates().entries()).map(([camera, state]) => ({
+        camera,
+        lastMotion: state.lastMotion,
+        isActive: state.isActive,
+        idleTimeMinutes: Math.floor((Date.now() - state.lastMotion) / (1000 * 60))
+      }));
+
+      let statusMessage = `📊 **Alert Service Status**\n\n`;
+      statusMessage += `🔧 **Service:** ${alertsService.isServiceInitialized() ? '🟢 Running' : '🔴 Stopped'}\n\n`;
+      
+      if (motionStates.length > 0) {
+        statusMessage += `📹 **Camera Motion States:**\n\n`;
+        for (const state of motionStates) {
+          const idleText = state.idleTimeMinutes > 60 ? 
+            `${Math.floor(state.idleTimeMinutes / 60)}h ${state.idleTimeMinutes % 60}m` :
+            `${state.idleTimeMinutes}m`;
+          statusMessage += `• **${state.camera}:** ${state.isActive ? '🟢 Active' : '🔴 Inactive'} (${idleText} idle)\n`;
+        }
+      } else {
+        statusMessage += `📹 **No cameras monitored**\n`;
+      }
+
+      await this.bot.sendMessage(chatId, statusMessage, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔄 Refresh', callback_data: 'alerts_status' }],
+            [{ text: '🔙 Back to Alerts', callback_data: 'admin_alerts' }]
+          ]
+        }
+      });
+    } catch (error) {
+      await this.bot.sendMessage(chatId, 
+        '❌ **Error**\n\nFailed to get alert service status.',
+        { parse_mode: 'Markdown' }
+      );
+    }
+  }
+
+  private async toggleAlertRule(chatId: number, ruleId: string) {
+    try {
+      const { getAlertRules, updateAlertRule } = await import('./config.js');
+      const rules = getAlertRules();
+      const rule = rules.find(r => r.id === ruleId);
+      
+      if (!rule) {
+        await this.bot.sendMessage(chatId, '❌ Rule not found.');
+        return;
+      }
+
+      const newEnabled = !rule.enabled;
+      updateAlertRule(ruleId, { enabled: newEnabled });
+
+      await this.bot.sendMessage(chatId,
+        `✅ **Rule ${newEnabled ? 'Enabled' : 'Disabled'}**\n\n` +
+        `📹 **Camera:** ${rule.cameraName}\n` +
+        `📊 **Status:** ${newEnabled ? '🟢 Active' : '🔴 Inactive'}`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Back to Rules', callback_data: 'alerts_list' }]
+            ]
+          }
+        }
+      );
+    } catch (error) {
+      await this.bot.sendMessage(chatId, '❌ Failed to toggle rule.');
+    }
+  }
+
+  private async deleteAlertRule(chatId: number, ruleId: string) {
+    try {
+      const { getAlertRules, deleteAlertRule } = await import('./config.js');
+      const rules = getAlertRules();
+      const rule = rules.find(r => r.id === ruleId);
+      
+      if (!rule) {
+        await this.bot.sendMessage(chatId, '❌ Rule not found.');
+        return;
+      }
+
+      deleteAlertRule(ruleId);
+
+      await this.bot.sendMessage(chatId,
+        `🗑️ **Rule Deleted**\n\n` +
+        `📹 **Camera:** ${rule.cameraName}\n` +
+        `⏱️ **Idle Threshold:** ${rule.idleThresholdMinutes} minutes`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Back to Rules', callback_data: 'alerts_list' }]
+            ]
+          }
+        }
+      );
+    } catch (error) {
+      await this.bot.sendMessage(chatId, '❌ Failed to delete rule.');
+    }
+  }
+
+  private async testAlertRule(chatId: number, ruleId: string) {
+    try {
+      const { getAlertRules } = await import('./config.js');
+      const rules = getAlertRules();
+      const rule = rules.find(r => r.id === ruleId);
+      
+      if (!rule) {
+        await this.bot.sendMessage(chatId, '❌ Rule not found.');
+        return;
+      }
+
+      // Get current snapshot
+      const snapshot = await getSnapshotBase64(rule.cameraName);
+      const imageBuffer = Buffer.from(snapshot, 'base64');
+
+      let testMessage = `🧪 **Test Alert**\n\n` +
+        `📹 **Camera:** ${rule.cameraName}\n` +
+        `⏱️ **Idle Threshold:** ${rule.idleThresholdMinutes} minutes\n` +
+        `🕐 **Active Hours:** ${rule.activeHours.start}:00 - ${rule.activeHours.end}:00\n` +
+        `⏸️ **Cooldown:** ${rule.cooldownMinutes} minutes`;
+
+      if (rule.aiCriteria?.enabled && rule.aiCriteria.prompt) {
+        try {
+          const aiResult = await analyzeImage(snapshot, rule.aiCriteria.prompt);
+          testMessage += `\n🤖 **AI Test:** ${aiResult}`;
+        } catch (error) {
+          testMessage += `\n🤖 **AI Test:** Failed - ${error}`;
+        }
+      }
+
+      await this.bot.sendPhoto(chatId, imageBuffer, {
+        caption: testMessage,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔙 Back to Rules', callback_data: 'alerts_list' }]
+          ]
+        }
+      });
+    } catch (error) {
+      await this.bot.sendMessage(chatId, '❌ Failed to test rule.');
+    }
+  }
+
+  // Alert Creation Methods
+  private async showAlertCreation(chatId: number) {
+    try {
+      const cameras = await getCameraNames();
+      
+      const cameraButtons = cameras.map(camera => [{
+        text: camera,
+        callback_data: `alerts_create_camera_${Buffer.from(camera).toString('base64')}`
+      }]);
+
+      await this.bot.sendMessage(chatId,
+        '🚨 **Create New Alert Rule**\n\n' +
+        'Select a camera to monitor:',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              ...cameraButtons,
+              [{ text: '🔙 Back to Alerts', callback_data: 'admin_alerts' }]
+            ]
+          }
+        }
+      );
+    } catch (error) {
+      await this.bot.sendMessage(chatId, '❌ Failed to load cameras.');
+    }
+  }
+
+  private async showAlertIdleThreshold(chatId: number, cameraName: string) {
+    await this.bot.sendMessage(chatId,
+      `🚨 **Alert Setup: ${cameraName}**\n\n` +
+      'How many minutes of no motion before alerting?',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '5 min', callback_data: `alerts_idle_${Buffer.from(cameraName).toString('base64')}_5` },
+              { text: '10 min', callback_data: `alerts_idle_${Buffer.from(cameraName).toString('base64')}_10` },
+              { text: '15 min', callback_data: `alerts_idle_${Buffer.from(cameraName).toString('base64')}_15` }
+            ],
+            [
+              { text: '30 min', callback_data: `alerts_idle_${Buffer.from(cameraName).toString('base64')}_30` },
+              { text: '60 min', callback_data: `alerts_idle_${Buffer.from(cameraName).toString('base64')}_60` },
+              { text: '120 min', callback_data: `alerts_idle_${Buffer.from(cameraName).toString('base64')}_120` }
+            ],
+            [{ text: '🔙 Back to Cameras', callback_data: 'alerts_add' }]
+          ]
+        }
+      }
+    );
+  }
+
+  private async showAlertActiveHours(chatId: number, cameraName: string, idleMinutes: number) {
+    await this.bot.sendMessage(chatId,
+      `🚨 **Alert Setup: ${cameraName}**\n\n` +
+      `⏱️ Idle Threshold: ${idleMinutes} minutes\n\n` +
+      'Select active hours (when alerts should be sent):',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '24/7', callback_data: `alerts_hours_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_0_23` },
+              { text: 'Day (6AM-10PM)', callback_data: `alerts_hours_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_6_22` }
+            ],
+            [
+              { text: 'Night (10PM-6AM)', callback_data: `alerts_hours_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_22_6` },
+              { text: 'Business (8AM-6PM)', callback_data: `alerts_hours_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_8_18` }
+            ],
+            [{ text: '🔙 Back', callback_data: `alerts_create_camera_${Buffer.from(cameraName).toString('base64')}` }]
+          ]
+        }
+      }
+    );
+  }
+
+  private async showAlertCooldown(chatId: number, cameraName: string, idleMinutes: number, startHour: number, endHour: number) {
+    await this.bot.sendMessage(chatId,
+      `🚨 **Alert Setup: ${cameraName}**\n\n` +
+      `⏱️ Idle Threshold: ${idleMinutes} minutes\n` +
+      `🕐 Active Hours: ${startHour}:00 - ${endHour}:00\n\n` +
+      'Select cooldown period (minutes between alerts):',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '15 min', callback_data: `alerts_cooldown_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_15` },
+              { text: '30 min', callback_data: `alerts_cooldown_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_30` }
+            ],
+            [
+              { text: '60 min', callback_data: `alerts_cooldown_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_60` },
+              { text: '120 min', callback_data: `alerts_cooldown_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_120` }
+            ],
+            [{ text: '🔙 Back', callback_data: `alerts_idle_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}` }]
+          ]
+        }
+      }
+    );
+  }
+
+  private async showAlertAICriteria(chatId: number, cameraName: string, idleMinutes: number, startHour: number, endHour: number, cooldownMinutes: number) {
+    await this.bot.sendMessage(chatId,
+      `🚨 **Alert Setup: ${cameraName}**\n\n` +
+      `⏱️ Idle Threshold: ${idleMinutes} minutes\n` +
+      `🕐 Active Hours: ${startHour}:00 - ${endHour}:00\n` +
+      `⏸️ Cooldown: ${cooldownMinutes} minutes\n\n` +
+      'Add AI criteria? (Optional - AI will analyze snapshots)',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🤖 Yes, with AI', callback_data: `alerts_ai_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_${cooldownMinutes}_yes` },
+              { text: '❌ No AI', callback_data: `alerts_ai_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_${cooldownMinutes}_no` }
+            ],
+            [{ text: '🔙 Back', callback_data: `alerts_hours_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}` }]
+          ]
+        }
+      }
+    );
+  }
+
+  private async showAlertAIPromptSelection(chatId: number, cameraName: string, idleMinutes: number, startHour: number, endHour: number, cooldownMinutes: number) {
+    const commonPrompts = [
+      'Is someone in the room?',
+      'Is someone awake?',
+      'Is there movement?',
+      'Is the room occupied?',
+      'Is someone sleeping?'
+    ];
+
+    const promptButtons = commonPrompts.map((prompt, index) => [{
+      text: prompt,
+      callback_data: `alerts_prompt_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_${cooldownMinutes}_${index}`
+    }]);
+
+    await this.bot.sendMessage(chatId,
+      `🚨 **Alert Setup: ${cameraName}**\n\n` +
+      'Select an AI prompt or enter custom:',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            ...promptButtons,
+            [{ text: '✏️ Custom Prompt', callback_data: `alerts_custom_prompt_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_${cooldownMinutes}` }],
+            [{ text: '🔙 Back', callback_data: `alerts_ai_${Buffer.from(cameraName).toString('base64')}_${idleMinutes}_${startHour}_${endHour}_${cooldownMinutes}_yes` }]
+          ]
+        }
+      }
+    );
+  }
+
+  private async createAlertRule(chatId: number, cameraName: string, idleMinutes: number, startHour: number, endHour: number, cooldownMinutes: number, aiPrompt?: string) {
+    try {
+      const { addAlertRule } = await import('./config.js');
+      
+      const ruleData = {
+        cameraName,
+        enabled: true,
+        idleThresholdMinutes: idleMinutes,
+        activeHours: { start: startHour, end: endHour },
+        cooldownMinutes,
+        aiCriteria: aiPrompt ? {
+          enabled: true,
+          prompt: aiPrompt
+        } : undefined
+      };
+
+      addAlertRule(ruleData);
+
+      let successMessage = `✅ **Alert Rule Created!**\n\n` +
+        `📹 **Camera:** ${cameraName}\n` +
+        `⏱️ **Idle Threshold:** ${idleMinutes} minutes\n` +
+        `🕐 **Active Hours:** ${startHour}:00 - ${endHour}:00\n` +
+        `⏸️ **Cooldown:** ${cooldownMinutes} minutes`;
+
+      if (aiPrompt) {
+        successMessage += `\n🤖 **AI Criteria:** ${aiPrompt}`;
+      }
+
+      await this.bot.sendMessage(chatId, successMessage, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📋 View All Rules', callback_data: 'alerts_list' }],
+            [{ text: '➕ Add Another Rule', callback_data: 'alerts_add' }],
+            [{ text: '🔙 Back to Alerts', callback_data: 'admin_alerts' }]
+          ]
+        }
+      });
+    } catch (error) {
+      await this.bot.sendMessage(chatId, '❌ Failed to create alert rule.');
+    }
   }
 }
 

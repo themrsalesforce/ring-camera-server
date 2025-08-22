@@ -5,5 +5,37 @@
   "telegramAuthorizedUsers": [426747873],
   "telegramPendingUsers": [],
   "telegramReminders": [],
-  "requestHistory": []
+  "requestHistory": [],
+  "alertRules": [
+    {
+      "id": "boys-room-idle",
+      "cameraName": "Boys Room",
+      "enabled": true,
+      "idleThresholdMinutes": 10,
+      "activeHours": {
+        "start": 0,
+        "end": 23
+      },
+      "cooldownMinutes": 60,
+      "aiCriteria": {
+        "enabled": true,
+        "prompt": "Is someone in the room and awake?"
+      }
+    },
+    {
+      "id": "front-door-idle",
+      "cameraName": "Front Door",
+      "enabled": true,
+      "idleThresholdMinutes": 30,
+      "activeHours": {
+        "start": 6,
+        "end": 22
+      },
+      "cooldownMinutes": 120,
+      "aiCriteria": {
+        "enabled": false,
+        "prompt": ""
+      }
+    }
+  ]
 }

@@ -15,6 +15,23 @@ export interface RequestHistoryEntry {
   errorMessage?: string;
 }
 
+export interface AlertRule {
+  id: string;
+  cameraName: string;
+  enabled: boolean;
+  idleThresholdMinutes: number; // Alert if no motion for X minutes
+  activeHours: {
+    start: number; // 0-23 hour
+    end: number;   // 0-23 hour
+  };
+  cooldownMinutes: number; // Don't alert again for X minutes
+  aiCriteria?: {
+    enabled: boolean;
+    prompt: string; // AI prompt to check (e.g., "Is someone sleeping?")
+  };
+  lastTriggered?: number; // Timestamp of last alert
+}
+
 export interface AppConfig {
   ringRefreshToken?: string;
   openaiApiKey?: string;
@@ -36,6 +53,7 @@ export interface AppConfig {
     requestTime: number;
   }>;
   requestHistory?: RequestHistoryEntry[];
+  alertRules?: AlertRule[];
 }
 
 const CONFIG_FILE = path.resolve(process.cwd(), 'config.json');
@@ -88,6 +106,9 @@ export function updateConfig(partial: AppConfig): AppConfig {
   }
   if (partial.requestHistory !== undefined) {
     next.requestHistory = partial.requestHistory;
+  }
+  if (partial.alertRules !== undefined) {
+    next.alertRules = partial.alertRules;
   }
   currentConfig = next;
   saveConfigToDisk(currentConfig);
@@ -198,6 +219,55 @@ export function getRequestHistoryByUser(userId: number, limit?: number): Request
 
 export function clearRequestHistory(): void {
   updateConfig({ requestHistory: [] });
+}
+
+// Alert Rules Management
+export function addAlertRule(rule: Omit<AlertRule, 'id' | 'lastTriggered'>): void {
+  const config = getConfig();
+  const newRule: AlertRule = {
+    ...rule,
+    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+    lastTriggered: undefined
+  };
+  const rules = config.alertRules || [];
+  updateConfig({ alertRules: [...rules, newRule] });
+}
+
+export function updateAlertRule(id: string, updates: Partial<AlertRule>): void {
+  const config = getConfig();
+  const rules = config.alertRules || [];
+  const index = rules.findIndex(rule => rule.id === id);
+  if (index !== -1) {
+    const updatedRule = { ...rules[index], ...updates };
+    updateConfig({ alertRules: [...rules.slice(0, index), updatedRule, ...rules.slice(index + 1)] });
+  }
+}
+
+export function deleteAlertRule(id: string): void {
+  const config = getConfig();
+  const rules = config.alertRules || [];
+  const filteredRules = rules.filter(rule => rule.id !== id);
+  updateConfig({ alertRules: filteredRules });
+}
+
+export function getAlertRules(): AlertRule[] {
+  const config = getConfig();
+  return config.alertRules || [];
+}
+
+export function getAlertRulesByCamera(cameraName: string): AlertRule[] {
+  const config = getConfig();
+  return config.alertRules?.filter(rule => rule.cameraName === cameraName) || [];
+}
+
+export function getAlertRulesByUser(userId: number): AlertRule[] {
+  const config = getConfig();
+  return config.alertRules?.filter(rule => rule.aiCriteria?.enabled && rule.aiCriteria.prompt.includes(`@${userId}`)) || [];
+}
+
+export function getAlertRulesByCameraAndUser(cameraName: string, userId: number): AlertRule[] {
+  const config = getConfig();
+  return config.alertRules?.filter(rule => rule.cameraName === cameraName && rule.aiCriteria?.enabled && rule.aiCriteria.prompt.includes(`@${userId}`)) || [];
 }
 
 

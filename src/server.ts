@@ -6,6 +6,7 @@ import { classifyBins, analyzeImage } from './services/vision.js';
 import { getConfig, updateConfig, getDefaultCameraName } from './services/config.js';
 import { startRingAuth, verifyRingTwoFactor } from './services/ringAuth.js';
 import './services/telegram.js';
+import { alertsService } from './services/alerts.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -283,12 +284,83 @@ app.get('/api/images', async (_req, res) => {
   }
 });
 
+// Alert rules endpoints
+app.get('/api/alerts', (_req, res) => {
+  try {
+    const { getAlertRules } = require('./services/config.js');
+    const rules = getAlertRules();
+    res.json({ rules });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/alerts', (req, res) => {
+  try {
+    const { addAlertRule } = require('./services/config.js');
+    const ruleData = req.body;
+    addAlertRule(ruleData);
+    res.json({ success: true, message: 'Alert rule added successfully' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.put('/api/alerts/:id', (req, res) => {
+  try {
+    const { updateAlertRule } = require('./services/config.js');
+    const ruleId = req.params.id;
+    const updates = req.body;
+    updateAlertRule(ruleId, updates);
+    res.json({ success: true, message: 'Alert rule updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.delete('/api/alerts/:id', (req, res) => {
+  try {
+    const { deleteAlertRule } = require('./services/config.js');
+    const ruleId = req.params.id;
+    deleteAlertRule(ruleId);
+    res.json({ success: true, message: 'Alert rule deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/alerts/status', (_req, res) => {
+  try {
+    const { alertsService } = require('./services/alerts.js');
+    const motionStates = Array.from(alertsService.getMotionStates().entries()).map(([camera, state]) => ({
+      camera,
+      lastMotion: state.lastMotion,
+      isActive: state.isActive,
+      idleTimeMinutes: Math.floor((Date.now() - state.lastMotion) / (1000 * 60))
+    }));
+    res.json({ 
+      initialized: alertsService.isServiceInitialized(),
+      motionStates 
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 // Static frontend
 app.use(express.static(path.resolve(process.cwd(), 'public')));
 
-app.listen(port, () => {
+app.listen(port, async () => {
   // eslint-disable-next-line no-console
   console.log(`Server listening on http://localhost:${port}`);
+  
+  // Initialize alerts service
+  try {
+    await alertsService.initialize();
+    console.log('Alerts service initialized');
+  } catch (error) {
+    console.error('Failed to initialize alerts service:', error);
+  }
 });
 
 

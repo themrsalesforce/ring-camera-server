@@ -7,7 +7,7 @@
   <style>
     *{box-sizing:border-box}
     body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#0f172a;color:#e5e7eb}
-    .container{max-width:1200px;margin:0 auto;padding:20px}
+    .container{max-width:1400px;margin:0 auto;padding:20px}
     .header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 16px}
     h1{font-size:22px;margin:0}
     .actions{display:flex;gap:10px;flex-wrap:wrap}
@@ -15,13 +15,18 @@
     .btn:hover{background:#0b1220}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     input[type=number]{width:90px;background:#0b132b;color:#e5e7eb;border:1px solid #233052;padding:10px 12px;border-radius:10px;outline:none}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-top:12px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:12px}
+    @media (max-width:1400px){ .grid{grid-template-columns:repeat(3,1fr);} }
+    @media (max-width:1024px){ .grid{grid-template-columns:repeat(2,1fr);} }
+    @media (max-width:640px){ .grid{grid-template-columns:repeat(1,1fr);} }
     .card{background:#0b1022;border:1px solid #1e2a4a;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.35)}
     .thumb{width:100%;height:180px;object-fit:cover;background:#0b132b}
     .card-body{padding:12px}
     .title{font-weight:700;margin:0 0 8px;font-size:15px}
     .muted{color:#93a4c3;font-size:12px}
     .pill{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid #2a3a63;margin-left:8px;font-size:12px;color:#c7d2fe}
+    .section-title{margin:18px 0 6px;font-weight:800;color:#c7d2fe}
+    .ghost{opacity:.6}
   </style>
 </head>
 <body>
@@ -43,6 +48,10 @@
     </div>
 
     <div id="grid" class="grid"></div>
+    <div id="hiddenSection" style="margin-top:24px;display:none">
+      <div class="section-title">Hidden Cameras</div>
+      <div id="hiddenGrid" class="grid"></div>
+    </div>
   </div>
 
   <script>
@@ -54,12 +63,13 @@
     const statusPill = document.getElementById('statusPill');
     let timers = new Map(); // cameraName -> timer
     let cameras = [];
+    const hidden = new Set(JSON.parse(localStorage.getItem('hiddenCameras')||'[]'));
 
-    function cardTemplate(name){
+    function cardTemplate(name, opts={hidden:false}){
       const enc = encodeURIComponent(name);
       const id = btoa(name).replace(/=/g,'');
       return `
-        <div class="card" id="card-${id}">
+        <div class="card ${opts.hidden?'ghost':''}" id="card-${id}">
           <img id="img-${id}" class="thumb" alt="${name}"/>
           <div class="card-body">
             <div class="title">${name}</div>
@@ -67,6 +77,9 @@
               <button class="btn" onclick="start('${enc}','${id}')">▶️ Start</button>
               <button class="btn" onclick="stop('${name}')">⏸️ Stop</button>
               <button class="btn" onclick="snapshot('${enc}','${id}', true)">📸 Snapshot</button>
+              ${opts.hidden
+                ? `<button class=\"btn\" onclick=\"unhide('${name}')\">👁️ Unhide</button>`
+                : `<button class=\"btn\" onclick=\"hide('${name}')\">🙈 Hide</button>`}
             </div>
             <div class="muted" id="meta-${id}">stopped</div>
           </div>
@@ -77,7 +90,12 @@
       const res = await fetch('/api/cameras');
       const data = await res.json();
       cameras = data.cameras || [];
-      grid.innerHTML = cameras.map(cardTemplate).join('');
+      const visible = cameras.filter(n=> !hidden.has(n));
+      const hiddenList = cameras.filter(n=> hidden.has(n));
+      grid.innerHTML = visible.map(n=> cardTemplate(n,{hidden:false})).join('');
+      const hiddenGrid = document.getElementById('hiddenGrid');
+      hiddenGrid.innerHTML = hiddenList.map(n=> cardTemplate(n,{hidden:true})).join('');
+      document.getElementById('hiddenSection').style.display = hiddenList.length? 'block':'none';
     }
 
     function snapshot(encName, id, mark){
@@ -114,6 +132,17 @@
     refreshListBtn.onclick = loadCameras;
 
     loadCameras();
+
+    window.hide = (name)=>{
+      hidden.add(name);
+      localStorage.setItem('hiddenCameras', JSON.stringify(Array.from(hidden)));
+      loadCameras();
+    };
+    window.unhide = (name)=>{
+      hidden.delete(name);
+      localStorage.setItem('hiddenCameras', JSON.stringify(Array.from(hidden)));
+      loadCameras();
+    };
   </script>
 </body>
 </html>
